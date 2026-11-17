@@ -91,7 +91,7 @@ fn norm_reg(kind: RegKind, v: &Val) -> String {
 }
 
 /// Zielwert einer Aktion in normalisierter Form (None = soll fehlen).
-fn target(a: &Action) -> Option<String> {
+fn static_target(a: &Action) -> Option<String> {
     match a {
         Action::Registry { kind, apply, .. } => apply.as_ref().map(|v| norm_reg(*kind, v)),
         Action::Bcd { apply, .. } => apply.as_ref().map(|v| parse::norm_bcd(&v.text())),
@@ -140,6 +140,16 @@ fn action_key(a: &Action) -> Option<String> {
         Action::Ps { .. } => return None,
     };
     Some(key.to_lowercase())
+}
+
+fn write_config(path: &str, text: String) -> Result<(), String> {
+    std::fs::write(path, text).map_err(|e| match e.kind() {
+        std::io::ErrorKind::PermissionDenied => format!(
+            "{path}: Zugriff verweigert. Ist in Windows-Sicherheit der überwachte Ordnerzugriff \
+             (Ransomware-Schutz) aktiv, dort Dialed als zugelassene App eintragen."
+        ),
+        _ => format!("{path}: {e}"),
+    })
 }
 
 fn shares_setting(a: &Tweak, b: &Tweak) -> bool {
@@ -214,6 +224,23 @@ impl<S: Sys> Engine<S> {
             .flatten()
             .unwrap_or_else(|| r"%USERPROFILE%\Documents".into());
         parse::expand_env(&raw, |n| self.sys.env(n))
+    }
+
+    fn target(&self, a: &Action) -> Option<String> {
+        match a {
+            Action::NvidiaDrs { apply, .. } => self.nv_value(apply).map(|v| v.to_string()),
+            _ => static_target(a),
+        }
+    }
+
+    fn nv_value(&self, v: &Val) -> Option<u32> {
+        let text = v.text();
+        let Some(offset) = text.strip_prefix("refresh-") else {
+            return Some(num(v));
+        };
+        let offset: u64 = offset.parse().ok()?;
+        let hz = self.hw.lock().unwrap().refresh;
+        (hz >= 50 && hz > offset).then(|| (hz - offset) as u32)
     }
 
     fn find(&self, id: &str) -> Result<&Tweak, String> {
@@ -343,7 +370,7 @@ impl<S: Sys> Engine<S> {
     }
 
     fn observe(&self, t: &Tweak, idx: usize, a: &Action, ctx: &Ctx) -> Obs {
-        let want = target(a);
+        let want = self.target(a);
         let value = |raw: Option<String>| {
             let applied = same(&raw, &want);
             let s = shown(&raw);
@@ -413,6 +440,9 @@ impl<S: Sys> Engine<S> {
                 }
                 Err(_) => Obs::Unsupported("Konfigurationsdatei nicht gefunden".into()),
             },
+            Action::NvidiaDrs { .. } if want.is_none() => {
+                Obs::Unsupported("Bildwiederholrate nicht erkannt".into())
+            }
             Action::NvidiaDrs { setting, app, .. } => match ctx.nv.get(app) {
                 Some(Ok(map)) => value(
                     map.get(&num(setting))
@@ -504,7 +534,7 @@ impl<S: Sys> Engine<S> {
             };
             v.actions.push(ActionView {
                 label: label(a),
-                target: shown(&target(a)),
+                target: shown(&self.target(a)),
                 current,
                 state,
             });
@@ -569,13 +599,13 @@ impl<S: Sys> Engine<S> {
             ps: parsed.map(|v| Self::ps_map(&v)),
             nv: self.read_nv(self.tweaks.iter()),
         };
+        *self.hw.lock().unwrap() = hw.clone();
         let journal = self.journal.lock().unwrap();
         let tweaks = self
             .tweaks
             .iter()
             .map(|t| self.view(t, &ctx, &hw, &journal))
             .collect();
-        *self.hw.lock().unwrap() = hw.clone();
         Ok(ScanResult {
             hardware: hw,
             tweaks,
@@ -639,8 +669,7 @@ impl<S: Sys> Engine<S> {
                 let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
                 let text = String::from_utf8(bytes)
                     .map_err(|_| "Datei ist nicht UTF-8 kodiert".to_string())?;
-                std::fs::write(&path, parse::ini_set(&text, section, key, val))
-                    .map_err(|e| format!("{path}: {e}"))
+                write_config(&path, parse::ini_set(&text, section, key, val))
             }
             Action::DeviceRegistry {
                 class_guid,
@@ -682,7 +711,7 @@ impl<S: Sys> Engine<S> {
                 let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
                 let new = parse::xml_set(&text, path, v)
                     .ok_or_else(|| format!("{path} steht nicht in {file}"))?;
-                std::fs::write(&file, new).map_err(|e| format!("{file}: {e}"))
+                write_config(&file, new)
             }
             Action::Ps { .. } => Err("interner Fehler: PowerShell-Aktion".into()),
         }
@@ -706,7 +735,7 @@ impl<S: Sys> Engine<S> {
             Action::Ps { apply, .. } => self
                 .run_ps(apply.as_deref().ok_or("kein Apply-Skript")?)
                 .map(|_| ()),
-            _ => self.set(a, target(a).as_deref()),
+            _ => self.set(a, self.target(a).as_deref()),
         }
     }
 
@@ -721,7 +750,7 @@ impl<S: Sys> Engine<S> {
                 .map(|_| ()),
             _ => {
                 // Vorher-Wert aus dem Journal; war der Tweak schon vor Dialed aktiv, gilt der Windows-Standard.
-                let want = target(a);
+                let want = self.target(a);
                 let value = match previous {
                     Some(p) if !same(p, &want) && !matches!(a, Action::DeviceRegistry { .. }) => {
                         p.clone()
@@ -961,7 +990,7 @@ mod tests {
             }
         }
         fn ps(&self, _: &str) -> Result<String, String> {
-            Ok(r#"{"hw":{"cpu":"Intel(R) Core(TM) i5","cpu_vendor":"GenuineIntel","build":26200,"gpus":["NVIDIA GeForce RTX 3060"],"chassis":[3],"battery":0},"detect":{}}"#.into())
+            Ok(r#"{"hw":{"cpu":"Intel(R) Core(TM) i5","cpu_vendor":"GenuineIntel","build":26200,"refresh":144,"gpus":["NVIDIA GeForce RTX 3060"],"chassis":[3],"battery":0},"detect":{}}"#.into())
         }
         fn env(&self, name: &str) -> Option<String> {
             (name == "USERPROFILE").then(|| self.dir.join("home").to_string_lossy().into_owned())
@@ -1214,7 +1243,7 @@ mod tests {
         let legacy = docs.join("GTA V");
         std::fs::create_dir_all(&enh).unwrap();
         std::fs::create_dir_all(&legacy).unwrap();
-        let xml = "<Settings>\r\n  <video>\r\n    <ReflexMode value=\"0\" />\r\n  </video>\r\n</Settings>\r\n";
+        let xml = "<Settings>\r\n  <video>\r\n    <ReflexMode value=\"0\" />\r\n    <FrameLimit value=\"120\" />\r\n  </video>\r\n</Settings>\r\n";
         std::fs::write(enh.join("settings.xml"), xml).unwrap();
         std::fs::write(
             legacy.join("settings.xml"),
@@ -1251,6 +1280,22 @@ mod tests {
         );
         e.revert("gta.legacy_fps_cap").unwrap();
         assert!(!e.sys.nv.lock().unwrap().contains_key(&key));
+
+        let enh_key = (Some("GTA5_Enhanced.exe".to_string()), 0x1083_5002);
+        e.sys.nv.lock().unwrap().insert(enh_key.clone(), 120);
+        let view = status(&e.scan().unwrap(), "gta.enh_fps_limit").clone();
+        assert_eq!(view.status, "inactive");
+        assert_eq!(view.actions[1].target, "141");
+        assert_eq!(e.apply("gta.enh_fps_limit").unwrap().status, "active");
+        assert_eq!(e.sys.nv.lock().unwrap().get(&enh_key), Some(&141));
+        let text = std::fs::read_to_string(enh.join("settings.xml")).unwrap();
+        assert!(text.contains("<FrameLimit value=\"0\" />"));
+        assert_eq!(e.revert("gta.enh_fps_limit").unwrap().status, "inactive");
+        assert_eq!(e.sys.nv.lock().unwrap().get(&enh_key), Some(&120));
+        assert_eq!(
+            std::fs::read_to_string(enh.join("settings.xml")).unwrap(),
+            xml
+        );
     }
 
     /// Schreibt einen Beispiel-Scan für die Browser-Vorschau der UI (ui/mock.json).

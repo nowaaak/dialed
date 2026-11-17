@@ -9,12 +9,14 @@ $mem = @(Get-CimInstance Win32_PhysicalMemory)
 $os  = Get-CimInstance Win32_OperatingSystem
 $cs  = Get-CimInstance Win32_ComputerSystem
 $enc = Get-CimInstance Win32_SystemEnclosure | Select-Object -First 1
+$vc  = @(Get-CimInstance Win32_VideoController)
 $hw = @{
   cpu       = "$($cpu.Name)".Trim()
   cpu_vendor= "$($cpu.Manufacturer)"
   cores     = [int]$cpu.NumberOfCores
   threads   = [int]$cpu.NumberOfLogicalProcessors
-  gpus      = @(Get-CimInstance Win32_VideoController | ForEach-Object { "$($_.Name)" })
+  gpus      = @($vc | ForEach-Object { "$($_.Name)" })
+  refresh   = [int]($vc | Measure-Object CurrentRefreshRate -Maximum).Maximum
   ram_gb    = [int][math]::Round((($mem | Measure-Object Capacity -Sum).Sum) / 1GB)
   ram_modules = [int]$mem.Count
   ram_speed = [int]($mem | Select-Object -First 1).ConfiguredClockSpeed
@@ -40,6 +42,7 @@ pub struct Hardware {
     pub os: String,
     pub build: u64,
     pub model: String,
+    pub refresh: u64,
     pub laptop: bool,
     pub disks: Vec<String>,
     pub flags: BTreeSet<String>,
@@ -80,6 +83,7 @@ pub fn from_json(v: &Value) -> Hardware {
         ram_speed: n(v, "ram_speed"),
         os: s(v, "os"),
         build: n(v, "build"),
+        refresh: n(v, "refresh"),
         model: format!("{} {}", s(v, "vendor"), s(v, "model"))
             .trim()
             .to_string(),

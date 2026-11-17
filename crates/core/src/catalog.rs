@@ -1,5 +1,5 @@
 //! Lädt die eingebetteten Tweak-Definitionen und prüft sie.
-use crate::model::{Action, Kind, Tweak};
+use crate::model::{Action, Kind, Tweak, Val};
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -49,6 +49,17 @@ pub fn load() -> Result<Vec<Tweak>, String> {
                 return bad("keine Aktionen");
             }
             for a in &t.actions {
+                if let Action::NvidiaDrs {
+                    apply: Val::Str(v), ..
+                } = a
+                {
+                    let dynamic = v
+                        .strip_prefix("refresh-")
+                        .is_some_and(|n| n.parse::<u32>().is_ok());
+                    if !dynamic && crate::parse::parse_u64(v).is_none() {
+                        return bad("nvidia_drs apply muss Zahl oder refresh-N sein");
+                    }
+                }
                 if let Action::Ps {
                     detect,
                     apply,

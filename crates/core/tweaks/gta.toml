@@ -15,47 +15,24 @@ apply = "1"
 default = "0"
 
 [[tweak]]
-id = "gta.enh_fps_cap"
+id = "gta.enh_fps_limit"
 name = "Enhanced: FPS-Limit 3 unter der Bildwiederholrate"
 category = "gta"
-description = "Setzt FrameLimit in der settings.xml von GTA V Enhanced auf die höchste Bildwiederholrate deiner Monitore minus 3. Mit G-SYNC oder FreeSync bleibt das Spiel so im VRR-Bereich, ohne V-Sync-Latenz."
-note = "GTA V vorher schließen. Ein niedrigeres Frame-Limit im NVIDIA-Profil von GTA5_Enhanced.exe hat Vorrang."
+description = "Setzt im NVIDIA-Profil von GTA5_Enhanced.exe ein Frame-Limit auf die höchste Bildwiederholrate deiner Monitore minus 3 und schaltet die FPS-Beschränkung im Spiel aus. Das Spiel selbst bietet nur Stufen bis 120. Mit G-SYNC oder FreeSync bleibt es so im VRR-Bereich, ohne V-Sync-Latenz."
+note = "GTA V vorher schließen. Zurücksetzen stellt das alte Limit im Treiber und im Spiel wieder her."
 evidence = "A"
 risk = "low"
-requires = ["gta_enhanced"]
+requires = ["gta_enhanced", "gpu.nvidia"]
 [[tweak.actions]]
-type = "ps"
-detect = '''
-$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
-if (-not (Test-Path $f)) { 'GTA V Enhanced nicht gefunden' } else {
-  $hz = (Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
-  $m = Select-String -Path $f -Pattern '<FrameLimit value="(\d+)"' | Select-Object -First 1
-  if ($m -and [int]$m.Matches[0].Groups[1].Value -eq ($hz - 3)) { '1' } else { '0' }
-}
-'''
-expect = "1"
-apply = '''
-$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
-if (-not (Test-Path $f)) { throw 'settings.xml von GTA V Enhanced nicht gefunden' }
-$hz = [int](Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
-if ($hz -lt 50) { throw 'Bildwiederholrate nicht erkannt' }
-$text = [IO.File]::ReadAllText($f)
-$m = [regex]::Match($text, '<FrameLimit value="(\d+)"')
-if (-not $m.Success) { throw 'FrameLimit steht nicht in der Datei, einmal im Spiel ein Limit setzen' }
-New-Item -ItemType Directory -Path "$env:APPDATA\Dialed" -Force | Out-Null
-[IO.File]::WriteAllText("$env:APPDATA\Dialed\gta-enh-fps-prev.txt", $m.Groups[1].Value)
-$v = $hz - 3
-[IO.File]::WriteAllText($f, [regex]::Replace($text, '<FrameLimit value="\d+"', "<FrameLimit value=`"$v`""))
-'''
-revert = '''
-$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
-$p = "$env:APPDATA\Dialed\gta-enh-fps-prev.txt"
-if (-not (Test-Path $p)) { throw 'Vorher-Wert nicht gefunden, Limit bitte im Spiel einstellen' }
-$v = ([IO.File]::ReadAllText($p)).Trim()
-$text = [IO.File]::ReadAllText($f)
-[IO.File]::WriteAllText($f, [regex]::Replace($text, '<FrameLimit value="\d+"', "<FrameLimit value=`"$v`""))
-Remove-Item $p
-'''
+type = "xml"
+file = '%DOCUMENTS%\Rockstar Games\GTAV Enhanced\settings.xml'
+path = "Settings/video/FrameLimit"
+apply = "0"
+[[tweak.actions]]
+type = "nvidia_drs"
+app = "GTA5_Enhanced.exe"
+setting = "0x10835002"
+apply = "refresh-3"
 
 [[tweak]]
 id = "gta.enh_directstorage"

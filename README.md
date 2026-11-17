@@ -84,7 +84,7 @@ apply = 1                     # default weggelassen = Windows-Standard ist „We
 
 `kind = "check"` macht aus einem Eintrag eine reine Erkennung (BIOS, RAM), `kind = "oneshot"` eine einmalige Aktion.
 
-`xml` ändert das Attribut `value` eines Elements, der Pfad führt über die Elementnamen (`path = "Settings/video/ReflexMode"`). In Dateipfaden steht `%DOCUMENTS%` für den echten Dokumente-Ordner, auch wenn er umgeleitet ist. `nvidia_drs` schreibt ohne `app` ins Basisprofil, mit `app = "GTA5.exe"` ins Treiberprofil dieser Anwendung.
+`xml` ändert das Attribut `value` eines Elements, der Pfad führt über die Elementnamen (`path = "Settings/video/ReflexMode"`). In Dateipfaden steht `%DOCUMENTS%` für den echten Dokumente-Ordner, auch wenn er umgeleitet ist. `nvidia_drs` schreibt ohne `app` ins Basisprofil, mit `app = "GTA5.exe"` ins Treiberprofil dieser Anwendung. `apply = "refresh-3"` setzt die höchste erkannte Bildwiederholrate minus 3.
 
 ## Aufbau
 
