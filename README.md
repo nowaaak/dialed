@@ -3,7 +3,7 @@
 Windows-Tweaking-Tool mit Zustandserkennung. Jeder Tweak wird erkannt, angewendet und sauber zurückgesetzt. Bereits aktive Tweaks sind in der Oberfläche markiert, auch wenn sie nicht von Dialed gesetzt wurden.
 
 - **Stack:** Rust + Tauri 2, Oberfläche ohne Build-Schritt (HTML, CSS, JS in `ui/`)
-- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 59 Einträge in 9 Kategorien
+- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 62 Einträge in 9 Kategorien
 - **Hardware:** CPU, GPU, RAM, Laufwerke, Notebook oder Desktop und Windows-Build werden beim Scan erkannt. Unpassende Tweaks sind ausgegraut.
 - **Undo:** Vor dem Anwenden landet der echte Vorher-Wert im Journal (`%APPDATA%\Dialed\journal.json`). Zurücksetzen stellt genau diesen Wert wieder her.
 - **Presets:** „Sicher“, „Competitive“ und „Notebook“ aktivieren mehrere Tweaks auf einmal.
@@ -47,9 +47,10 @@ Einmalige Einrichtung: Doppelklick auf `setup-release.cmd`. Das Skript nutzt dei
 
 Das Repo muss öffentlich sein, sonst kann die App die Releases nicht laden.
 
-Neue Version veröffentlichen: Version in `src-tauri/tauri.conf.json` und `src-tauri/Cargo.toml` erhöhen und auf `main` pushen.
+Neue Version veröffentlichen: Version in `src-tauri/tauri.conf.json` und `src-tauri/Cargo.toml` erhöhen, `Cargo.lock` mit `cargo check -p dialed` nachziehen und auf `main` pushen.
 
 ```powershell
+cargo check -p dialed
 git commit -am "chore: release 0.2.0"
 git push
 ```
@@ -72,7 +73,7 @@ reboot = true
 requires = ["win11"]          # Flags, mit ! verneint: cpu.amd, cpu.intel, gpu.nvidia, gpu.amd, gpu.intel,
                               # laptop, desktop, win10, win11, hdd, ssd, nvme, x3d_dual_ccd, dell, fortnite
 [[tweak.actions]]
-type = "registry"             # registry | bcd | powercfg | ps | ini | device_registry
+type = "registry"             # registry | bcd | powercfg | ps | ini | device_registry | nvidia_drs
 hive = "HKLM"
 path = 'SYSTEM\CurrentControlSet\Control\Session Manager\kernel'
 name = "GlobalTimerResolutionRequests"
