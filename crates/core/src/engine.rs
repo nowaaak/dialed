@@ -588,6 +588,14 @@ impl<S: Sys> Engine<S> {
     fn run_ps(&self, script: &str) -> Result<String, String> {
         self.sys
             .ps(&format!("$ErrorActionPreference='Stop'\n{script}"))
+            // PowerShell hängt Zeilennummer und Kategorie an, die erste Zeile ist die eigentliche Meldung
+            .map_err(|e| {
+                e.lines()
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())
+                    .unwrap_or("unbekannter Fehler")
+                    .to_string()
+            })
     }
 
     fn do_apply(&self, a: &Action) -> Result<(), String> {
