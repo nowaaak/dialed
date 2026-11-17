@@ -101,6 +101,37 @@ fn default_of(a: &Action) -> Option<String> {
     }
 }
 
+/// Eindeutiger Name der Einstellung, die eine Aktion verändert. Tweaks mit gleichem
+/// Schlüssel (z. B. zwei Werte für Win32PrioritySeparation) schließen sich gegenseitig aus.
+fn action_key(a: &Action) -> Option<String> {
+    let key = match a {
+        Action::Registry {
+            hive, path, name, ..
+        } => format!("reg|{hive}|{path}|{name}"),
+        Action::Bcd { element, .. } => format!("bcd|{element}"),
+        Action::Powercfg { sub, setting, .. } => format!("power|{sub}|{setting}"),
+        Action::Ini {
+            file, section, key, ..
+        } => format!("ini|{file}|{section}|{key}"),
+        Action::DeviceRegistry {
+            class_guid,
+            subpath,
+            name,
+            ..
+        } => format!("dev|{class_guid}|{subpath}|{name}"),
+        Action::NvidiaDrs { setting, .. } => format!("nv|{}", num(setting)),
+        Action::Ps { .. } => return None,
+    };
+    Some(key.to_lowercase())
+}
+
+fn shares_setting(a: &Tweak, b: &Tweak) -> bool {
+    a.actions
+        .iter()
+        .filter_map(action_key)
+        .any(|k| b.actions.iter().filter_map(action_key).any(|o| o == k))
+}
+
 fn num(v: &Val) -> u32 {
     parse::parse_u64(&v.text()).unwrap_or(0) as u32
 }
@@ -438,7 +469,14 @@ impl<S: Sys> Engine<S> {
             v.status = "partial";
             v.detail = format!("{applied} von {total} Einstellungen aktiv");
         }
-        v.drift = managed && t.kind == Kind::Toggle && v.status != "active";
+        // Keine Abweichung, wenn ein anderer von Dialed gesetzter Tweak dieselbe Einstellung übernommen hat.
+        let superseded = journal
+            .entries
+            .keys()
+            .filter(|id| **id != t.id)
+            .filter_map(|id| self.tweaks.iter().find(|o| &o.id == id))
+            .any(|o| shares_setting(t, o));
+        v.drift = managed && t.kind == Kind::Toggle && v.status != "active" && !superseded;
         v
     }
 
@@ -658,6 +696,30 @@ impl<S: Sys> Engine<S> {
         }
         {
             let mut journal = self.journal.lock().unwrap();
+            let mut previous = previous;
+            // Löst dieser Tweak einen anderen ab, der dieselbe Einstellung gesetzt hatte, dann
+            // übernimmt er dessen ursprünglichen Vorher-Wert, und der alte Eintrag entfällt.
+            let others: Vec<&Tweak> = journal
+                .entries
+                .keys()
+                .filter(|id| **id != t.id)
+                .filter_map(|id| self.tweaks.iter().find(|o| &o.id == id))
+                .filter(|o| shares_setting(t, o))
+                .collect();
+            for o in others {
+                if let Some(entry) = journal.entries.remove(&o.id) {
+                    for (i, a) in t.actions.iter().enumerate() {
+                        let Some(key) = action_key(a) else { continue };
+                        let slot = o
+                            .actions
+                            .iter()
+                            .position(|b| action_key(b).as_deref() == Some(key.as_str()));
+                        if let Some(prev) = slot.and_then(|j| entry.previous.get(j)) {
+                            previous[i] = prev.clone();
+                        }
+                    }
+                }
+            }
             let at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -1016,6 +1078,37 @@ mod tests {
             .unwrap()
             .entries
             .contains_key("prio.win32_2a"));
+    }
+
+    #[test]
+    fn switching_between_exclusive_tweaks_is_not_drift() {
+        let e = engine("excl");
+        let path = r"SYSTEM\CurrentControlSet\Control\PriorityControl";
+        e.sys
+            .reg_set(
+                "HKLM",
+                path,
+                "Win32PrioritySeparation",
+                RegKind::Dword,
+                "24",
+            )
+            .unwrap();
+        e.scan().unwrap();
+        e.apply("prio.win32_26").unwrap();
+        e.apply("prio.win32_2a").unwrap();
+        let scan = e.scan().unwrap();
+        assert_eq!(status(&scan, "prio.win32_2a").status, "active");
+        let old = status(&scan, "prio.win32_26");
+        assert!(!old.drift && !old.managed);
+        // Zurück geht es auf den Wert vor beiden Tweaks
+        e.revert("prio.win32_2a").unwrap();
+        assert_eq!(
+            e.sys
+                .reg_get("HKLM", path, "Win32PrioritySeparation", RegKind::Dword)
+                .unwrap()
+                .as_deref(),
+            Some("24")
+        );
     }
 
     #[test]
