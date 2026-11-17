@@ -1,0 +1,7 @@
+target/
+src-tauri/gen/
+*.log
+build-log.txt
+# Signaturschluessel darf nie ins Repo
+$HOME/
+*.key

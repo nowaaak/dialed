@@ -1,0 +1,75 @@
+# BIOS, RAM und CPU: wird nur erkannt, nicht geschaltet.
+
+[[tweak]]
+id = "hw.xmp"
+name = "XMP / EXPO aktiv"
+category = "hardware"
+kind = "check"
+description = "Der RAM läuft schneller als der JEDEC-Standardtakt. Ohne XMP bzw. EXPO verschenkt ein Gaming-PC spürbar 1%-Lows."
+note = "Heuristik über den Takt: DDR4 über 2933 MHz, DDR5 über 5600 MHz. Einschalten im BIOS."
+evidence = "A"
+risk = "low"
+requires = ["!laptop"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$m = Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1
+$t = [int]$m.SMBIOSMemoryType; $s = [int]$m.ConfiguredClockSpeed
+if (($t -eq 34 -and $s -gt 5600) -or ($t -eq 26 -and $s -gt 2933)) { '1' } else { '0' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "hw.dual_channel"
+name = "Mindestens zwei RAM-Riegel"
+category = "hardware"
+kind = "check"
+description = "Mit nur einem Riegel läuft der Speicher im Single-Channel-Betrieb, das kostet in Spielen deutlich Leistung."
+note = "Zwei Riegel gehören in die im Mainboard-Handbuch genannten Slots, meist A2 und B2."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if (@(Get-CimInstance Win32_PhysicalMemory).Count -ge 2) { '1' } else { '0' }"
+expect = "1"
+
+[[tweak]]
+id = "hw.secure_boot"
+name = "Secure Boot an"
+category = "hardware"
+kind = "check"
+description = "Kein Leistungs-Tweak, aber Voraussetzung für Valorant (Vanguard) unter Windows 11 und für manche Turnier-Clients."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "try { if (Confirm-SecureBootUEFI) { '1' } else { '0' } } catch { '0' }"
+expect = "1"
+
+[[tweak]]
+id = "hw.tpm"
+name = "TPM 2.0 vorhanden"
+category = "hardware"
+kind = "check"
+description = "Voraussetzung für Windows 11 und für Vanguard. Auf AM4-Boards mit altem BIOS kann das Firmware-TPM Ruckler verursachen, dann BIOS aktualisieren."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if ((Get-Tpm).TpmPresent) { '1' } else { '0' }"
+expect = "1"
+
+[[tweak]]
+id = "hw.x3d_service"
+name = "AMD 3D V-Cache Optimizer läuft"
+category = "hardware"
+kind = "check"
+description = "Auf Ryzen-X3D-CPUs mit zwei CCDs sorgt dieser Dienst aus dem Chipsatztreiber dafür, dass Spiele auf den Kernen mit Zusatz-Cache landen."
+note = "Zusätzlich nötig: Spielmodus an, aktuelle Xbox Game Bar, Energieplan Ausbalanciert."
+evidence = "A"
+risk = "low"
+requires = ["x3d_dual_ccd"]
+[[tweak.actions]]
+type = "ps"
+detect = "\"$((Get-Service amd3dvcacheSvc).Status)\""
+expect = "Running"

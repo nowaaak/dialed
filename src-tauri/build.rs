@@ -1,0 +1,7 @@
+fn main() {
+    // Eigenes Manifest: die App fordert beim Start Administratorrechte an (UAC),
+    // weil fast alle Tweaks HKLM, bcdedit oder powercfg brauchen.
+    let windows = tauri_build::WindowsAttributes::new().app_manifest(include_str!("app.manifest"));
+    tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+        .expect("tauri-build fehlgeschlagen");
+}

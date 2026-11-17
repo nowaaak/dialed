@@ -1,0 +1,108 @@
+# SSD / HDD
+
+[[tweak]]
+id = "storage.trim"
+name = "TRIM aktiv"
+category = "storage"
+description = "Windows meldet der SSD gelöschte Blöcke. Ohne TRIM wird eine SSD mit der Zeit langsamer."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if (\"$(fsutil behavior query DisableDeleteNotify)\" -match 'NTFS DisableDeleteNotify = 0') { '1' } else { '0' }"
+expect = "1"
+apply = "fsutil behavior set DisableDeleteNotify 0 | Out-Null"
+revert = "fsutil behavior set DisableDeleteNotify 1 | Out-Null"
+
+[[tweak]]
+id = "storage.last_access_off"
+name = "NTFS Last-Access-Zeitstempel aus"
+category = "storage"
+description = "NTFS schreibt nicht mehr bei jedem Lesezugriff einen Zeitstempel. Spart Metadaten-Schreibzugriffe."
+note = "Einige Backup-Programme nutzen den Zeitstempel."
+evidence = "B"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "ps"
+detect = "[long](Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem').NtfsDisableLastAccessUpdate -band 1"
+expect = "1"
+apply = "fsutil behavior set disablelastaccess 1 | Out-Null"
+revert = "fsutil behavior set disablelastaccess 2 | Out-Null"
+
+[[tweak]]
+id = "storage.8dot3_off"
+name = "8.3-Dateinamen aus"
+category = "storage"
+description = "NTFS legt für neue Dateien keine kurzen DOS-Namen mehr an. Beschleunigt Ordner mit sehr vielen Dateien."
+note = "Sehr alte 16-Bit-Installer können kurze Namen erwarten."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\FileSystem'
+name = "NtfsDisable8dot3NameCreation"
+kind = "dword"
+apply = 1
+default = 2
+
+[[tweak]]
+id = "storage.sysmain_off"
+name = "SysMain (Superfetch) aus"
+category = "storage"
+description = "Der Dienst lädt häufig genutzte Programme nicht mehr vorab in den RAM. Auf NVMe-SSDs kaum Nutzen, dafür gelegentliche Hintergrundlast."
+note = "Auf Systemen mit HDD anlassen, dort hilft er spürbar."
+evidence = "C"
+risk = "low"
+reboot = true
+requires = ["!hdd"]
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Services\SysMain'
+name = "Start"
+kind = "dword"
+apply = 4
+default = 2
+
+[[tweak]]
+id = "storage.hdd_never_off"
+name = "Festplatte nie ausschalten"
+category = "storage"
+description = "HDDs werden im aktiven Energieplan nicht mehr nach Leerlauf abgeschaltet. Verhindert sekundenlange Hänger beim Wiederanlaufen."
+evidence = "B"
+risk = "low"
+requires = ["hdd"]
+[[tweak.actions]]
+type = "powercfg"
+sub = "0012ee47-9041-4b5d-9b77-535fba8b1442"
+setting = "6738e2c4-e8a5-4a42-b16a-e040e769756e"
+apply = 0
+
+[[tweak]]
+id = "storage.bitlocker_check"
+name = "Systemlaufwerk ohne BitLocker"
+category = "storage"
+kind = "check"
+description = "Windows 11 aktiviert die Geräteverschlüsselung bei Neuinstallationen oft automatisch. Die Software-Verschlüsselung kostet spürbar Leistung bei zufälligen Zugriffen."
+note = "Abschalten über Einstellungen, Datenschutz und Sicherheit, Geräteverschlüsselung. Auf Notebooks ist die Verschlüsselung ein echter Diebstahlschutz."
+evidence = "B"
+risk = "medium"
+[[tweak.actions]]
+type = "ps"
+detect = "$v = Get-BitLockerVolume -MountPoint $env:SystemDrive; if ($v -and \"$($v.ProtectionStatus)\" -eq 'On') { '0' } else { '1' }"
+expect = "1"
+
+[[tweak]]
+id = "storage.optimize_task_check"
+name = "Geplante Laufwerksoptimierung aktiv"
+category = "storage"
+kind = "check"
+description = "Die wöchentliche Optimierung schickt SSDs ein Retrim und defragmentiert HDDs. Sie sollte anbleiben, viele Tweak-Skripte schalten sie fälschlich ab."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "$t = Get-ScheduledTask -TaskName 'ScheduledDefrag'; if ($t -and \"$($t.State)\" -ne 'Disabled') { '1' } else { '0' }"
+expect = "1"

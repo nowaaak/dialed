@@ -1,0 +1,350 @@
+# Windows: Timer, Scheduler, Eingabe, Sicherheit gegen Leistung
+
+[[tweak]]
+id = "kernel.global_timer_resolution"
+name = "Globale Timer-Resolution (Windows 11)"
+category = "windows"
+description = "Timer-Resolution-Anfragen eines Prozesses gelten wieder systemweit, wie vor Windows 10 2004. Zusammen mit einem Spiel oder Tool, das 0,5 ms anfordert, werden Sleep-Aufrufe deutlich genauer."
+evidence = "A"
+risk = "low"
+reboot = true
+requires = ["win11"]
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\Session Manager\kernel'
+name = "GlobalTimerResolutionRequests"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "bcd.remove_useplatformclock"
+name = "Erzwungenes HPET entfernen"
+category = "windows"
+description = "Entfernt useplatformclock aus dem Boot-Eintrag. Manche alten Guides erzwingen damit HPET als Zeitquelle, was jede Zeitabfrage teurer macht. Aktiv bedeutet: der Eintrag fehlt, so wie es sein soll."
+evidence = "A"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "bcd"
+element = "useplatformclock"
+
+[[tweak]]
+id = "bcd.disable_dynamic_tick"
+name = "Dynamic Tick aus"
+category = "windows"
+description = "Der Systemtimer tickt durchgehend, statt im Leerlauf zu pausieren. Manche berichten von gleichmäßigeren Frametimes, andere von schlechterem Mausgefühl. Selbst testen."
+note = "Erhöht den Stromverbrauch im Leerlauf. Auf Notebooks nicht sinnvoll."
+evidence = "C"
+risk = "low"
+reboot = true
+requires = ["!laptop"]
+[[tweak.actions]]
+type = "bcd"
+element = "disabledynamictick"
+apply = "yes"
+
+[[tweak]]
+id = "prio.win32_2a"
+name = "Win32PrioritySeparation 0x2A"
+category = "windows"
+description = "Kurze, feste Zeitscheiben mit 3:1-Vorteil für das Vordergrundfenster. Der unter Competitive-Spielern verbreitetste Wert."
+note = "Hex 0x2A = dezimal 42. Die Quantum-Tabelle hat sich mit Windows 11 24H2 geändert, alte Messwerte sind nicht übertragbar."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\PriorityControl'
+name = "Win32PrioritySeparation"
+kind = "dword"
+apply = "0x2A"
+default = 2
+
+[[tweak]]
+id = "prio.win32_26"
+name = "Win32PrioritySeparation 0x26"
+category = "windows"
+description = "Kurze, variable Zeitscheiben mit 3:1-Vorteil für das Vordergrundfenster. Entspricht im Verhalten dem Windows-Standard (2), nur explizit gesetzt."
+note = "Hex 0x26 = dezimal 38. Schließt sich mit 0x2A gegenseitig aus, es ist derselbe Registry-Wert."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\PriorityControl'
+name = "Win32PrioritySeparation"
+kind = "dword"
+apply = "0x26"
+default = 2
+
+[[tweak]]
+id = "mmcss.system_responsiveness"
+name = "MMCSS SystemResponsiveness 10"
+category = "windows"
+description = "Reserviert nur 10 % statt 20 % der CPU-Zeit für Hintergrundaufgaben, wenn Multimedia-Threads laufen."
+note = "Nie auf 100 setzen, das schaltet MMCSS faktisch ab."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+name = "SystemResponsiveness"
+kind = "dword"
+apply = 10
+default = 20
+
+[[tweak]]
+id = "mmcss.games_task"
+name = "GPU Priority / MMCSS-Profil „Games“"
+category = "windows"
+description = "Setzt im MMCSS-Profil für Spiele GPU Priority 8, Priority 6, Scheduling Category High und SFIO Priority High."
+note = "Wirkt nur auf Threads, die sich selbst beim MMCSS-Profil „Games“ anmelden, das tun wenige Spiele. GPU Priority 8 ist bereits Windows-Standard."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+name = "GPU Priority"
+kind = "dword"
+apply = 8
+default = 8
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+name = "Priority"
+kind = "dword"
+apply = 6
+default = 2
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+name = "Scheduling Category"
+kind = "sz"
+apply = "High"
+default = "Medium"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+name = "SFIO Priority"
+kind = "sz"
+apply = "High"
+default = "Normal"
+
+[[tweak]]
+id = "power.throttling_off"
+name = "Power Throttling aus"
+category = "windows"
+description = "Windows drosselt Hintergrundprozesse nicht mehr über EcoQoS. Verhindert, dass Tools wie Discord oder OBS im Hintergrund auf Effizienzkerne und niedrigen Takt geschoben werden."
+note = "Mehr Verbrauch. Auf Notebooks im Akkubetrieb spürbar."
+evidence = "B"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\Power\PowerThrottling'
+name = "PowerThrottlingOff"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "game.dvr_off"
+name = "Game DVR / Hintergrundaufnahme aus"
+category = "windows"
+description = "Schaltet die Hintergrundaufzeichnung der Xbox Game Bar ab. Die Game Bar selbst bleibt installiert."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'System\GameConfigStore'
+name = "GameDVR_Enabled"
+kind = "dword"
+apply = 0
+default = 1
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Software\Microsoft\Windows\CurrentVersion\GameDVR'
+name = "AppCaptureEnabled"
+kind = "dword"
+apply = 0
+default = 1
+
+[[tweak]]
+id = "input.mouse_accel_off"
+name = "Zeigerbeschleunigung aus"
+category = "windows"
+description = "Deaktiviert „Zeigerbeschleunigung verbessern“. Spiele mit Raw Input sind davon nicht betroffen, Desktop und ältere Spiele schon."
+note = "Wirkt nach erneutem Anmelden."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Mouse'
+name = "MouseSpeed"
+kind = "sz"
+apply = "0"
+default = "1"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Mouse'
+name = "MouseThreshold1"
+kind = "sz"
+apply = "0"
+default = "6"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Mouse'
+name = "MouseThreshold2"
+kind = "sz"
+apply = "0"
+default = "10"
+
+[[tweak]]
+id = "gfx.hags_on"
+name = "Hardwarebeschleunigte GPU-Planung (HAGS) an"
+category = "windows"
+description = "Die GPU verwaltet ihren Speicher und ihre Warteschlange selbst. Pflicht für DLSS Frame Generation, sonst je Spiel testen."
+evidence = "B"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\GraphicsDrivers'
+name = "HwSchMode"
+kind = "dword"
+apply = 2
+default = 1
+
+[[tweak]]
+id = "sec.hvci_off"
+name = "Speicherintegrität (HVCI) aus"
+category = "windows"
+description = "Schaltet die Kernisolierung ab. In CPU-limitierten Spielen der größte reine Windows-Hebel, Tests messen je nach System 3 bis 10 % mehr Leistung."
+note = "Senkt den Kernel-Schutz. Valorant (Vanguard) und FACEIT können HVCI verlangen."
+evidence = "A"
+risk = "high"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity'
+name = "Enabled"
+kind = "dword"
+apply = 0
+default = 1
+
+[[tweak]]
+id = "sec.vbs_off"
+name = "Virtualisierungsbasierte Sicherheit (VBS) aus"
+category = "windows"
+description = "Startet Windows ohne Hypervisor. Geht über HVCI hinaus und entfernt den Virtualisierungs-Overhead komplett."
+note = "WSL2, Docker Desktop, Hyper-V und die Windows-Sandbox funktionieren danach nicht mehr."
+evidence = "B"
+risk = "high"
+reboot = true
+[[tweak.actions]]
+type = "bcd"
+element = "hypervisorlaunchtype"
+apply = "off"
+default = "auto"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\DeviceGuard'
+name = "EnableVirtualizationBasedSecurity"
+kind = "dword"
+apply = 0
+
+[[tweak]]
+id = "mem.compression_off"
+name = "Speicherkomprimierung aus"
+category = "windows"
+description = "Windows komprimiert selten genutzte Speicherseiten nicht mehr. Spart etwas CPU-Zeit bei Speicherdruck."
+note = "Nur mit 32 GB RAM oder mehr sinnvoll, sonst wird früher ausgelagert."
+evidence = "C"
+risk = "medium"
+reboot = true
+[[tweak.actions]]
+type = "ps"
+detect = "(Get-MMAgent).MemoryCompression"
+expect = "False"
+apply = "Disable-MMAgent -MemoryCompression"
+revert = "Enable-MMAgent -MemoryCompression"
+
+[[tweak]]
+id = "mem.purge_standby"
+name = "RAM-Cache leeren (Standby-Liste)"
+category = "windows"
+description = "Leert einmalig die Standby-Liste. Hilft nur in dem seltenen Fall, dass ein Spiel bei vollem Standby-Cache ruckelt. Windows gibt diesen Speicher normalerweise selbst frei."
+evidence = "C"
+risk = "low"
+kind = "oneshot"
+[[tweak.actions]]
+type = "ps"
+apply = '''
+$src = @"
+using System;
+using System.Runtime.InteropServices;
+public static class DialedMem {
+  [DllImport("ntdll.dll")] static extern int NtSetSystemInformation(int cls, ref int info, int len);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr h, uint acc, out IntPtr tok);
+  [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool LookupPrivilegeValue(string sys, string name, out long luid);
+  [StructLayout(LayoutKind.Sequential, Pack=1)] struct TP { public int Count; public long Luid; public int Attr; }
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool AdjustTokenPrivileges(IntPtr tok, bool dis, ref TP tp, int len, IntPtr prev, IntPtr ret);
+  [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  public static int Purge() {
+    IntPtr tok;
+    OpenProcessToken(GetCurrentProcess(), 0x28, out tok);
+    TP tp = new TP(); tp.Count = 1; tp.Attr = 2;
+    LookupPrivilegeValue(null, "SeProfileSingleProcessPrivilege", out tp.Luid);
+    AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+    int cmd = 4; // MemoryPurgeStandbyList
+    return NtSetSystemInformation(80, ref cmd, 4);
+  }
+}
+"@
+Add-Type -TypeDefinition $src
+$status = [DialedMem]::Purge()
+if ($status -ne 0) { throw ("NtSetSystemInformation meldet 0x{0:X8}" -f $status) }
+"Standby-Liste geleert"
+'''
+
+[[tweak]]
+id = "timer.service"
+name = "Timer-Resolution-Dienst (0,5 ms)"
+category = "windows"
+description = "Startet bei der Anmeldung einen winzigen Hintergrundprozess von Dialed, der die Timer-Auflösung dauerhaft auf 0,5 ms hält. Erst zusammen mit „Globale Timer-Resolution“ wirkt das systemweit."
+note = "Etwas höherer Stromverbrauch im Leerlauf. Nach einem Dialed-Update bleibt der Dienst bestehen."
+evidence = "B"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = "if (Get-ScheduledTask -TaskName 'Dialed Timer Resolution') { '1' } else { '0' }"
+expect = "1"
+apply = '''
+$exe = $env:DIALED_EXE
+if (-not $exe -or -not (Test-Path $exe)) { throw 'Pfad zur Dialed.exe unbekannt' }
+$a = New-ScheduledTaskAction -Execute $exe -Argument '--timer'
+$t = New-ScheduledTaskTrigger -AtLogOn
+$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
+$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'Dialed Timer Resolution' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null
+Start-ScheduledTask -TaskName 'Dialed Timer Resolution'
+'''
+revert = '''
+Stop-ScheduledTask -TaskName 'Dialed Timer Resolution' -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName 'Dialed Timer Resolution' -Confirm:$false
+'''

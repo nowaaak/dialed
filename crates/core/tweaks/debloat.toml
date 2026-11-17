@@ -1,0 +1,170 @@
+# Debloat: Apps, Telemetrie, Hintergrundaktivität
+
+[[tweak]]
+id = "debloat.appx"
+name = "Vorinstallierte Apps entfernen"
+category = "debloat"
+description = "Entfernt für dein Benutzerkonto: Bing News, Wetter, Bing-Suche, Hilfe, Tipps, Office-Hub, Solitaire, Kontakte, Feedback-Hub, Groove, Filme & TV, Clipchamp, Teams, To Do, Power Automate, Cortana, Copilot, Remotehilfe und das neue Outlook."
+note = "Xbox-Apps, Game Bar, Store, Fotos und Rechner bleiben. Zurückholen geht nur einzeln über den Microsoft Store."
+evidence = "B"
+risk = "medium"
+irreversible = true
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$l = 'Microsoft.BingNews','Microsoft.BingWeather','Microsoft.BingSearch','Microsoft.GetHelp','Microsoft.Getstarted','Microsoft.MicrosoftOfficeHub','Microsoft.MicrosoftSolitaireCollection','Microsoft.People','Microsoft.WindowsFeedbackHub','Microsoft.ZuneMusic','Microsoft.ZuneVideo','Clipchamp.Clipchamp','MicrosoftTeams','MSTeams','Microsoft.Todos','Microsoft.PowerAutomateDesktop','Microsoft.549981C3F5F10','Microsoft.Copilot','MicrosoftCorporationII.QuickAssist','Microsoft.OutlookForWindows'
+@(Get-AppxPackage | Where-Object { $l -contains $_.Name }).Count
+'''
+expect = "0"
+apply = '''
+$l = 'Microsoft.BingNews','Microsoft.BingWeather','Microsoft.BingSearch','Microsoft.GetHelp','Microsoft.Getstarted','Microsoft.MicrosoftOfficeHub','Microsoft.MicrosoftSolitaireCollection','Microsoft.People','Microsoft.WindowsFeedbackHub','Microsoft.ZuneMusic','Microsoft.ZuneVideo','Clipchamp.Clipchamp','MicrosoftTeams','MSTeams','Microsoft.Todos','Microsoft.PowerAutomateDesktop','Microsoft.549981C3F5F10','Microsoft.Copilot','MicrosoftCorporationII.QuickAssist','Microsoft.OutlookForWindows'
+Get-AppxPackage | Where-Object { $l -contains $_.Name } | ForEach-Object { try { Remove-AppxPackage -Package $_.PackageFullName } catch {} }
+'''
+
+[[tweak]]
+id = "debloat.background_apps"
+name = "Hintergrund-Apps aus"
+category = "debloat"
+description = "Store-Apps dürfen per Richtlinie nicht mehr im Hintergrund laufen. Weniger Aufwachvorgänge und RAM-Verbrauch."
+note = "Apps wie Mail oder Kalender zeigen dann keine Benachrichtigungen mehr, solange sie geschlossen sind."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
+name = "LetAppsRunInBackground"
+kind = "dword"
+apply = 2
+
+[[tweak]]
+id = "debloat.telemetry"
+name = "Telemetrie minimieren"
+category = "debloat"
+description = "Setzt die Diagnosedaten-Richtlinie auf das Minimum und deaktiviert die Dienste DiagTrack und dmwappushservice."
+evidence = "B"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+name = "AllowTelemetry"
+kind = "dword"
+apply = 0
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Services\DiagTrack'
+name = "Start"
+kind = "dword"
+apply = 4
+default = 2
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Services\dmwappushservice'
+name = "Start"
+kind = "dword"
+apply = 4
+default = 3
+
+[[tweak]]
+id = "debloat.telemetry_tasks"
+name = "Telemetrie-Aufgaben aus"
+category = "debloat"
+description = "Deaktiviert die geplanten Aufgaben Compatibility Appraiser, ProgramDataUpdater, Consolidator, UsbCeip und DiskDiagnosticDataCollector. Sie verursachen gelegentliche CPU- und Datenträgerspitzen im Hintergrund."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$n = 'Microsoft Compatibility Appraiser','ProgramDataUpdater','Consolidator','UsbCeip','Microsoft-Windows-DiskDiagnosticDataCollector'
+@(Get-ScheduledTask -TaskName $n | Where-Object { $_.State -ne 'Disabled' }).Count
+'''
+expect = "0"
+apply = '''
+$n = 'Microsoft Compatibility Appraiser','ProgramDataUpdater','Consolidator','UsbCeip','Microsoft-Windows-DiskDiagnosticDataCollector'
+Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue | Disable-ScheduledTask | Out-Null
+'''
+revert = '''
+$n = 'Microsoft Compatibility Appraiser','ProgramDataUpdater','Consolidator','UsbCeip','Microsoft-Windows-DiskDiagnosticDataCollector'
+Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue | Enable-ScheduledTask | Out-Null
+'''
+
+[[tweak]]
+id = "debloat.consumer_features"
+name = "Automatische App-Vorschläge aus"
+category = "debloat"
+description = "Windows installiert keine beworbenen Apps und Spiele mehr von selbst ins Startmenü."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Windows\CloudContent'
+name = "DisableWindowsConsumerFeatures"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "debloat.widgets_off"
+name = "Widgets entfernen"
+category = "debloat"
+description = "Entfernt das Windows Web Experience Pack, also die Widgets samt ihrem Hintergrundprozess. Die Richtlinie dafür sperrt Windows 11 inzwischen selbst für Administratoren, deshalb geht es nur über das Entfernen der App."
+note = "Zurückholen über den Microsoft Store: „Windows Web Experience Pack“ installieren."
+evidence = "B"
+risk = "low"
+irreversible = true
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = "@(Get-AppxPackage -Name 'MicrosoftWindows.Client.WebExperience').Count"
+expect = "0"
+apply = "Get-AppxPackage -Name 'MicrosoftWindows.Client.WebExperience' | Remove-AppxPackage"
+
+[[tweak]]
+id = "debloat.search_suggestions_off"
+name = "Web-Vorschläge in der Suche aus"
+category = "debloat"
+description = "Die Startmenü-Suche fragt nicht mehr bei Bing an. Die Suche reagiert schneller und bleibt lokal."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Software\Policies\Microsoft\Windows\Explorer'
+name = "DisableSearchBoxSuggestions"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "debloat.advertising_id_off"
+name = "Werbe-ID aus"
+category = "debloat"
+description = "Apps bekommen keine Werbe-ID mehr für personalisierte Anzeigen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo'
+name = "Enabled"
+kind = "dword"
+apply = 0
+default = 1
+
+[[tweak]]
+id = "debloat.startup_delay_off"
+name = "Autostart-Verzögerung aus"
+category = "debloat"
+description = "Windows wartet nach der Anmeldung nicht mehr künstlich, bevor Autostart-Programme geladen werden."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize'
+name = "StartupDelayInMSec"
+kind = "dword"
+apply = 0

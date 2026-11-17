@@ -1,0 +1,177 @@
+# Fortnite. Erlaubt sind nur Windows-Einstellungen und die GameUserSettings.ini.
+# Nichts hier greift in den laufenden Prozess ein.
+
+[[tweak]]
+id = "fn.cpu_priority"
+name = "CPU-Priorität Hoch"
+category = "fortnite"
+description = "Windows startet FortniteClient-Win64-Shipping.exe direkt mit hoher CPU-Priorität. Im Task-Manager geht das wegen Easy Anti-Cheat nicht, über diesen Registry-Weg schon, weil die Priorität beim Prozessstart vergeben wird."
+note = "Von Epic nicht offiziell freigegeben, in der Community seit Jahren ohne Banns im Einsatz. Hoch kann Audio- und Treiber-Threads verdrängen. Bei Knacksen oder Eingabehängern zurücksetzen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions'
+name = "CpuPriorityClass"
+kind = "dword"
+apply = 3
+
+[[tweak]]
+id = "fn.io_priority"
+name = "I/O-Priorität Hoch"
+category = "fortnite"
+description = "Datenträgerzugriffe von Fortnite werden vor Hintergrundprozessen bedient. Hilft beim Nachladen von Texturen, wenn nebenbei Downloads oder Updates laufen."
+note = "Gleicher Mechanismus wie die CPU-Priorität, gleiche Einordnung bei Anti-Cheat."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions'
+name = "IoPriority"
+kind = "dword"
+apply = 3
+
+[[tweak]]
+id = "fn.segment_heap_off"
+name = "Segment Heap aus"
+category = "fortnite"
+description = "Fortnite nutzt den älteren NT-Heap statt des Segment Heaps. Der Segment Heap spart Speicher, kostet aber bei vielen kleinen Allokationen etwas CPU-Zeit."
+note = "Wirkung ist nicht mit Messungen belegt. Bei Abstürzen oder höherem RAM-Verbrauch zurücksetzen."
+evidence = "C"
+risk = "medium"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe'
+name = "FrontEndHeapDebugOptions"
+kind = "dword"
+apply = 4
+
+[[tweak]]
+id = "fn.ini_competitive"
+name = "Competitive-Basis in GameUserSettings.ini"
+category = "fortnite"
+description = "Setzt V-Sync aus, Bewegungsunschärfe aus, Gras aus und Mausbeschleunigung aus. Die Datei ist die einzige Fortnite-Konfiguration, die Epic selbst zum Bearbeiten nennt."
+note = "Fortnite vorher schließen, sonst überschreibt das Spiel die Werte beim Beenden."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "bUseVSync"
+apply = "False"
+default = "False"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "bMotionBlur"
+apply = "False"
+default = "True"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "bShowGrass"
+apply = "False"
+default = "True"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "bDisableMouseAcceleration"
+apply = "True"
+default = "False"
+
+[[tweak]]
+id = "fn.ini_fullscreen"
+name = "Exklusiver Vollbildmodus"
+category = "fortnite"
+description = "Stellt Fortnite auf echten Vollbildmodus statt randlosem Fenster."
+note = "Fortnite vorher schließen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "FullscreenMode"
+apply = "0"
+default = "1"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "PreferredFullscreenMode"
+apply = "0"
+default = "1"
+
+[[tweak]]
+id = "fn.fps_cap"
+name = "FPS-Limit 3 unter der Bildwiederholrate"
+category = "fortnite"
+description = "Setzt FrameRateLimit in der GameUserSettings.ini auf die höchste Bildwiederholrate deiner Monitore minus 3. Mit G-SYNC oder FreeSync bleibt das Spiel so im VRR-Bereich, ohne V-Sync-Latenz."
+note = "Fortnite vorher schließen. Ohne VRR oder für maximale FPS das Limit lieber im Spiel selbst wählen."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
+if (-not (Test-Path $f)) { 'Fortnite nicht gefunden' } else {
+  $hz = (Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+  $m = Select-String -Path $f -Pattern '^FrameRateLimit=([0-9.]+)' | Select-Object -First 1
+  if ($m -and [math]::Round([double]$m.Matches[0].Groups[1].Value) -eq ($hz - 3)) { '1' } else { '0' }
+}
+'''
+expect = "1"
+apply = '''
+$f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
+if (-not (Test-Path $f)) { throw 'GameUserSettings.ini nicht gefunden' }
+$hz = [int](Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+if ($hz -lt 50) { throw 'Bildwiederholrate nicht erkannt' }
+$text = [IO.File]::ReadAllText($f)
+$m = [regex]::Match($text, '(?m)^FrameRateLimit=([0-9.]+)')
+if (-not $m.Success) { throw 'FrameRateLimit steht nicht in der Datei, einmal im Spiel ein Limit setzen' }
+[IO.File]::WriteAllText("$env:APPDATA\Dialed\fn-fps-prev.txt", $m.Groups[1].Value)
+$v = $hz - 3
+[IO.File]::WriteAllText($f, [regex]::Replace($text, '(?m)^FrameRateLimit=[0-9.]+', "FrameRateLimit=$v.000000"))
+'''
+revert = '''
+$f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
+$p = "$env:APPDATA\Dialed\fn-fps-prev.txt"
+$v = if (Test-Path $p) { ([IO.File]::ReadAllText($p)).Trim() } else { '0.000000' }
+$text = [IO.File]::ReadAllText($f)
+[IO.File]::WriteAllText($f, [regex]::Replace($text, '(?m)^FrameRateLimit=[0-9.]+', "FrameRateLimit=$v"))
+'''
+
+[[tweak]]
+id = "fn.launch_without_cpu0"
+name = "Fortnite ohne CPU 0 starten (Unbind CPU 0)"
+category = "fortnite"
+kind = "oneshot"
+description = "Startet den Epic Games Launcher so, dass er und alles, was er startet, den ersten logischen Kern nicht nutzt. Fortnite erbt diese Zuweisung. Am laufenden Spiel lässt sie sich wegen Easy Anti-Cheat nicht ändern."
+note = "Experimentell. Von Epic nicht offiziell freigegeben, greift aber nicht in den Spielprozess ein. Der Launcher muss vorher komplett beendet sein. Gilt bis zum nächsten Neustart des Launchers. Ob es auf deinem System etwas bringt, zeigt nur der Benchmark."
+evidence = "C"
+risk = "medium"
+[[tweak.actions]]
+type = "ps"
+apply = '''
+if (Get-Process EpicGamesLauncher -ErrorAction SilentlyContinue) { throw 'Epic Games Launcher zuerst komplett beenden (auch im Infobereich), dann erneut ausführen.' }
+$exe = @("${env:ProgramFiles(x86)}\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe", "${env:ProgramFiles(x86)}\Epic Games\Launcher\Portal\Binaries\Win32\EpicGamesLauncher.exe", "$env:ProgramFiles\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $exe) { throw 'Epic Games Launcher nicht am Standardort gefunden' }
+$n = [Environment]::ProcessorCount
+if ($n -lt 6 -or $n -gt 62) { throw "Bei $n logischen Kernen nicht sinnvoll" }
+$mask = '{0:X}' -f ([long][math]::Pow(2, $n) - 2)
+$dir = "$env:ProgramData\Dialed"
+New-Item -ItemType Directory -Path $dir -Force | Out-Null
+$cmd = "$dir\launch-epic.cmd"
+Set-Content -Path $cmd -Encoding ASCII -Value "@echo off`r`nstart `"`" /affinity $mask `"$exe`""
+# Ohne Adminrechte starten, sonst liefe auch das Spiel als Administrator
+runas /trustlevel:0x20000 $cmd | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Start ohne Adminrechte fehlgeschlagen (runas)' }
+"Launcher ohne CPU 0 gestartet. Fortnite jetzt wie gewohnt starten."
+'''

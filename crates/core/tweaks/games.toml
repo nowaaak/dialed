@@ -1,0 +1,54 @@
+# Weitere Spiele
+
+[[tweak]]
+id = "cs2.cpu_priority"
+name = "CS2: CPU-Priorität Hoch"
+category = "games"
+description = "Windows startet cs2.exe direkt mit hoher CPU-Priorität."
+note = "Bei Tonknacksen oder Eingabehängern zurücksetzen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\cs2.exe\PerfOptions'
+name = "CpuPriorityClass"
+kind = "dword"
+apply = 3
+
+[[tweak]]
+id = "valorant.hvci_on"
+name = "Valorant: Speicherintegrität an"
+category = "games"
+kind = "check"
+description = "Riot Vanguard kann die Speicherintegrität (HVCI) verlangen. Ist sie aus, startet Valorant unter Umständen nicht."
+note = "Steht im Konflikt mit dem Tweak „Speicherintegrität (HVCI) aus“. Wer Valorant spielt, lässt HVCI an."
+evidence = "A"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity'
+name = "Enabled"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "valorant.boot_check"
+name = "Valorant: Secure Boot und TPM 2.0"
+category = "games"
+kind = "check"
+description = "Unter Windows 11 startet Valorant nur mit aktivem Secure Boot und TPM 2.0 (Fehler VAN 9001 und VAN 9003)."
+note = "Beides wird im BIOS eingeschaltet."
+evidence = "A"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = "try { if (Confirm-SecureBootUEFI) { '1' } else { '0' } } catch { '0' }"
+expect = "1"
+[[tweak.actions]]
+type = "ps"
+detect = "if ((Get-Tpm).TpmPresent) { '1' } else { '0' }"
+expect = "1"

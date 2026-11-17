@@ -1,0 +1,113 @@
+# Grafik
+
+[[tweak]]
+id = "gpu.msi_mode"
+name = "MSI-Mode für die Grafikkarte"
+category = "gpu"
+description = "Die Grafikkarte nutzt Message Signaled Interrupts statt klassischer Leitungs-Interrupts. Senkt die Interrupt-Latenz, NVIDIA-Treiber lassen das oft aus."
+note = "Betrifft alle Grafikadapter im System. Startet ein Gerät danach nicht, im abgesicherten Modus zurücksetzen."
+evidence = "B"
+risk = "medium"
+reboot = true
+[[tweak.actions]]
+type = "device_registry"
+class_guid = "{4d36e968-e325-11ce-bfc1-08002be10318}"
+subpath = 'Device Parameters\Interrupt Management\MessageSignaledInterruptProperties'
+name = "MSISupported"
+apply = 1
+
+[[tweak]]
+id = "gpu.nvidia_telemetry_tasks"
+name = "NVIDIA-Telemetrie-Aufgaben aus"
+category = "gpu"
+description = "Deaktiviert die geplanten NVIDIA-Aufgaben für Telemetrie und Fehlerberichte (NvTm…). Weniger Hintergrundaktivität, kein FPS-Wunder."
+evidence = "B"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "ps"
+detect = "@(Get-ScheduledTask -TaskName 'NvTm*' | Where-Object { $_.State -ne 'Disabled' }).Count"
+expect = "0"
+apply = "Get-ScheduledTask -TaskName 'NvTm*' -ErrorAction SilentlyContinue | Disable-ScheduledTask | Out-Null"
+revert = "Get-ScheduledTask -TaskName 'NvTm*' -ErrorAction SilentlyContinue | Enable-ScheduledTask | Out-Null"
+
+[[tweak]]
+id = "gpu.irq_affinity"
+name = "GPU-Interrupts weg von CPU 0"
+category = "gpu"
+description = "Legt die Interrupts der Grafikkarte fest auf den logischen Kern 2. Auf CPU 0 landen standardmäßig die meisten Treiber-Interrupts, dort konkurriert die GPU sonst mit Maus, Netzwerk und Audio."
+note = "Wirkung hängt stark vom System ab und sollte mit dem Benchmark geprüft werden. Passt gut zu „Fortnite ohne CPU 0 starten“."
+evidence = "C"
+risk = "medium"
+reboot = true
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$n = 0; $ok = $true
+foreach ($d in (Get-PnpDevice -Class Display -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $n++
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  if ((Get-ItemProperty $k -ErrorAction SilentlyContinue).DevicePolicy -ne 4) { $ok = $false }
+}
+if ($n -gt 0 -and $ok) { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+if ([Environment]::ProcessorCount -lt 4) { throw 'Braucht mindestens 4 logische Kerne' }
+foreach ($d in (Get-PnpDevice -Class Display -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  New-Item -Path $k -Force | Out-Null
+  Set-ItemProperty -Path $k -Name DevicePolicy -Value 4 -Type DWord
+  Set-ItemProperty -Path $k -Name AssignmentSetOverride -Value ([byte[]](0x04)) -Type Binary
+}
+'''
+revert = '''
+foreach ($d in (Get-PnpDevice -Class Display -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  Remove-ItemProperty -Path $k -Name DevicePolicy, AssignmentSetOverride -ErrorAction SilentlyContinue
+}
+'''
+
+# NVIDIA-Treiberprofil (global). Kennungen aus NVIDIAs öffentlichem Header NvApiDriverSettings.h.
+
+[[tweak]]
+id = "nv.power_max"
+name = "NVIDIA: Energieverwaltung auf maximale Leistung"
+category = "gpu"
+description = "Die Grafikkarte taktet unter Last nicht mehr herunter. Vermeidet Frametime-Spitzen, wenn die GPU-Auslastung schwankt, etwa in Esport-Titeln mit FPS-Limit."
+note = "Gilt global für alle Programme. Die Karte verbraucht im Leerlauf etwas mehr. Spiele nach dem Umschalten neu starten."
+evidence = "B"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x1057EB71"
+apply = 1
+
+[[tweak]]
+id = "nv.prerender_1"
+name = "NVIDIA: Modus für geringe Latenz Ein"
+category = "gpu"
+description = "Begrenzt die vorgerenderten Frames auf 1. Senkt die Eingabeverzögerung in Spielen ohne NVIDIA Reflex, wenn die GPU am Limit läuft."
+note = "In Spielen mit Reflex (auch Fortnite) übernimmt Reflex diese Aufgabe, dort ändert der Schalter nichts."
+evidence = "B"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x007BA09E"
+apply = 1
+
+[[tweak]]
+id = "nv.shader_cache_unlimited"
+name = "NVIDIA: Shader-Cache unbegrenzt"
+category = "gpu"
+description = "Hebt die Größenbegrenzung des Shader-Caches auf. Verhindert, dass der Treiber kompilierte Shader verwirft und Spiele sie mit Rucklern neu kompilieren."
+note = "Der Cache kann über die Zeit mehrere Gigabyte belegen."
+evidence = "B"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x00AC8497"
+apply = "0xFFFFFFFF"

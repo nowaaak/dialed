@@ -1,0 +1,35 @@
+name: Release
+
+# Ein Tag wie v0.2.0 baut den Installer, signiert das Update und veröffentlicht das Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: true
+      - name: Tests
+        run: cargo test -p dialed-core
+      - name: Tauri-CLI installieren
+        run: cargo install tauri-cli --version "^2" --locked
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: cargo tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Dialed ${{ github.ref_name }}
+          releaseBody: Änderungen siehe Commits seit dem letzten Release.
+          releaseDraft: false
+          prerelease: false

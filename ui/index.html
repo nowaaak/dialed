@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dialed</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.2 17.5a8.5 8.5 0 1 1 13.6 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 12.5 16 7.8" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12.5" r="1.6" fill="var(--primary)"/></svg>
+        <span data-tauri-drag-region>Dialed</span>
+        <span class="page" id="tb-page" data-tauri-drag-region></span>
+      </div>
+      <div class="winbtns">
+        <button type="button" id="win-min" aria-label="Minimieren" title="Minimieren"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <button type="button" id="win-max" aria-label="Maximieren" title="Maximieren"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+        <button type="button" id="win-close" class="danger" aria-label="Schließen" title="Schließen"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+    </header>
+
+    <aside>
+      <label class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search" type="search" placeholder="Tweaks suchen" autocomplete="off" spellcheck="false">
+      </label>
+      <nav id="nav" aria-label="Kategorien"></nav>
+      <section class="update" id="update" hidden>
+        <div><strong>Update verfügbar</strong><span class="muted" id="update-version"></span></div>
+        <button type="button" class="btn primary" id="btn-update">Installieren</button>
+      </section>
+      <section class="hw" id="hw" aria-label="Erkannte Hardware"></section>
+    </aside>
+
+    <div class="panel">
+      <main id="main">
+        <header class="pagehead">
+          <h1 id="title">Übersicht</h1>
+          <div class="actions">
+            <button type="button" class="btn outline" id="btn-presets">Presets</button>
+            <button type="button" class="btn outline" id="btn-restore">Wiederherstellungspunkt</button>
+            <button type="button" class="btn outline" id="btn-scan">Neu scannen</button>
+          </div>
+        </header>
+        <div class="toolbar" id="toolbar">
+          <div class="tabs" id="filters" role="tablist">
+            <button type="button" role="tab" data-filter="all" aria-selected="true">Alle</button>
+            <button type="button" role="tab" data-filter="on" aria-selected="false">Aktiv</button>
+            <button type="button" role="tab" data-filter="off" aria-selected="false">Nicht aktiv</button>
+          </div>
+          <span class="muted" id="summary"></span>
+        </div>
+        <div class="banner" id="reboot" hidden>Einige Änderungen wirken erst nach einem Neustart.</div>
+        <div id="list" class="list"></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay" hidden>
+    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title">
+      <h2 id="dlg-title"></h2>
+      <p id="dlg-text"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn outline" id="dlg-cancel">Abbrechen</button>
+        <button type="button" class="btn primary" id="dlg-ok">Fortfahren</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="presets" hidden>
+    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="presets-title">
+      <h2 id="presets-title">Presets</h2>
+      <p>Aktiviert alle passenden Tweaks eines Profils, die noch nicht aktiv sind. Jeder einzelne lässt sich danach wieder zurücksetzen.</p>
+      <div id="preset-list"></div>
+      <div class="dlg-actions"><button type="button" class="btn outline" id="presets-close">Schließen</button></div>
+    </div>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

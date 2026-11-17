@@ -1,0 +1,57 @@
+# Netzwerk. Nagle-, TcpAckFrequency- und NetworkThrottlingIndex-Tweaks fehlen bewusst:
+# Spiele wie Fortnite nutzen UDP, und Messungen zeigen dort keinen Vorteil.
+
+[[tweak]]
+id = "net.rss_check"
+name = "Receive Side Scaling aktiv"
+category = "network"
+kind = "check"
+description = "Die Netzwerkkarte verteilt eingehende Pakete auf mehrere Kerne, statt alles über CPU 0 zu schicken. Manche Tweak-Skripte schalten das fälschlich ab."
+note = "WLAN-Adapter unterstützen RSS meist nicht, dann bleibt dieser Punkt offen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$r = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterRss -ErrorAction SilentlyContinue
+if ($r -and -not ($r | Where-Object { -not $_.Enabled })) { '1' } else { '0' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "net.eee_off"
+name = "Energy Efficient Ethernet aus"
+category = "network"
+description = "Die Netzwerkkarte legt die Leitung in Sendepausen nicht mehr schlafen. Vermeidet kurze Aufwachverzögerungen und gelegentliche Verbindungsabbrüche."
+note = "Beim Umschalten ist die Verbindung für ein paar Sekunden weg. Nur für kabelgebundene Adapter mit dieser Option."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$p = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -ErrorAction SilentlyContinue
+if (-not $p) { 'nicht vorhanden' } elseif ($p | Where-Object { "$($_.RegistryValue)" -ne '0' }) { '0' } else { '1' }
+'''
+expect = "1"
+apply = '''
+$a = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' }
+if (-not ($a | Get-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -ErrorAction SilentlyContinue)) { throw 'Kein aktiver Adapter mit dieser Option' }
+$a | Set-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -RegistryValue 0 -ErrorAction SilentlyContinue
+'''
+revert = "Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Set-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -RegistryValue 1 -ErrorAction SilentlyContinue"
+
+[[tweak]]
+id = "net.interrupt_moderation_check"
+name = "Interrupt Moderation an"
+category = "network"
+kind = "check"
+description = "Die Netzwerkkarte bündelt Interrupts. Viele Guides raten zum Abschalten, Messungen zeigen dabei aber eine höhere DPC-Latenz. Anlassen ist richtig."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$p = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -RegistryKeyword '*InterruptModeration' -ErrorAction SilentlyContinue
+if ($p | Where-Object { "$($_.RegistryValue)" -eq '0' }) { '0' } else { '1' }
+'''
+expect = "1"
