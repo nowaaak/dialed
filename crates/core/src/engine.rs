@@ -990,7 +990,7 @@ mod tests {
             }
         }
         fn ps(&self, _: &str) -> Result<String, String> {
-            Ok(r#"{"hw":{"cpu":"Intel(R) Core(TM) i5","cpu_vendor":"GenuineIntel","build":26200,"refresh":144,"gpus":["NVIDIA GeForce RTX 3060"],"chassis":[3],"battery":0},"detect":{}}"#.into())
+            Ok(r#"{"hw":{"cpu":"Intel(R) Core(TM) i5","cpu_vendor":"GenuineIntel","cores":6,"threads":12,"ram_gb":32,"ram_modules":2,"ram_speed":3200,"os":"Microsoft Windows 11 Pro","vendor":"Micro-Star International Co., Ltd.","model":"MS-7C56","build":26200,"refresh":144,"gpus":["NVIDIA GeForce RTX 3060"],"chassis":[3],"battery":0,"disks":[{"name":"Samsung SSD 980 PRO 1TB","media":"SSD","bus":"NVMe"}]},"detect":{}}"#.into())
         }
         fn env(&self, name: &str) -> Option<String> {
             (name == "USERPROFILE").then(|| self.dir.join("home").to_string_lossy().into_owned())
@@ -1305,6 +1305,25 @@ mod tests {
             return;
         };
         let e = engine("dump");
+        let enh = e
+            .sys
+            .dir
+            .join("home")
+            .join("Documents")
+            .join("Rockstar Games")
+            .join("GTAV Enhanced");
+        std::fs::create_dir_all(&enh).unwrap();
+        std::fs::write(
+            enh.join("settings.xml"),
+            "<Settings>
+  <video>
+    <ReflexMode value=\"1\" />
+    <FrameLimit value=\"0\" />
+  </video>
+</Settings>
+",
+        )
+        .unwrap();
         e.scan().unwrap();
         for id in [
             "kernel.global_timer_resolution",

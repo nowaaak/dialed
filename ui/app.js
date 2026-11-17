@@ -268,23 +268,52 @@ function renderNav() {
   }).join("");
 }
 
+const GAMES = [
+  { flag: "fortnite", label: "Fortnite", cat: "fortnite" },
+  { flag: "gta_legacy", label: "GTA V Legacy", cat: "gta" },
+  { flag: "gta_enhanced", label: "GTA V Enhanced", cat: "gta" },
+];
+
+function cpuName(hw) {
+  return hw.cpu.replace(/\((R|TM)\)/gi, "").replace(/\s+\d+-Core Processor/i, "").replace(/\s+CPU.*$/i, "").trim();
+}
+
 function renderHardware() {
   const hw = state.hardware;
   if (!hw || !hw.cpu) {
-    $("hw").innerHTML = `<h2>System</h2><div class="muted">${state.loading ? "Wird erkannt …" : "Nicht erkannt"}</div>`;
+    $("hw").innerHTML = `<div class="hw-box"><span class="hw-title">System</span><span class="muted">${state.loading ? "Wird erkannt …" : "Nicht erkannt"}</span></div>`;
     return;
   }
-  const row = (k, v) => (v ? `<div title="${esc(v)}"><span class="k">${k}</span>${esc(v)}</div>` : "");
-  const cpu = hw.cpu.replace(/\((R|TM)\)/gi, "").replace(/\s+\d+-Core Processor/i, "").replace(/\s+CPU.*$/i, "").trim();
+  const row = (k, v) => (v ? `<span class="hw-row" title="${esc(v)}"><span class="k">${k}</span>${esc(v)}</span>` : "");
   $("hw").innerHTML =
-    `<h2>${hw.laptop ? "Notebook" : "Desktop"}</h2>` +
-    row("CPU", cpu) +
+    `<button type="button" class="hw-box" data-cat="hardware" title="Alles Erkannte im Hardware-Check anzeigen">` +
+    `<span class="hw-title">${hw.laptop ? "Notebook" : "Desktop"}</span>` +
+    row("CPU", cpuName(hw)) +
     hw.gpus.map((g) => row("GPU", g)).join("") +
-    row("RAM", `${hw.ram_gb} GB${hw.ram_speed ? ` @ ${hw.ram_speed} MHz` : ""}`) +
-    row("OS", `${hw.os.replace("Microsoft ", "")} (${hw.build})`) +
-    (hw.flags.includes("fortnite") ? row("Spiel", "Fortnite gefunden") : "") +
-    (hw.flags.includes("gta_legacy") ? row("Spiel", "GTA V Legacy gefunden") : "") +
-    (hw.flags.includes("gta_enhanced") ? row("Spiel", "GTA V Enhanced gefunden") : "");
+    `</button>`;
+}
+
+function systemInfo() {
+  const hw = state.hardware;
+  if (!hw || !hw.cpu) return '<div class="sysinfo"><div class="skeleton sys"></div><div class="skeleton sys"></div></div>';
+  const row = (k, v) => (v ? `<dt>${k}</dt><dd title="${esc(v)}">${esc(v)}</dd>` : "");
+  const cores = hw.cores ? ` · ${hw.cores} Kerne, ${hw.threads} Threads` : "";
+  const ram = hw.ram_gb ? `${hw.ram_gb} GB${hw.ram_modules ? `, ${hw.ram_modules} Module` : ""}${hw.ram_speed ? ` @ ${hw.ram_speed} MHz` : ""}` : "";
+  const facts =
+    row("Gerät", hw.laptop ? "Notebook" : "Desktop") +
+    row("Modell", hw.model) +
+    row("CPU", cpuName(hw) + cores) +
+    hw.gpus.map((g) => row("GPU", g)).join("") +
+    row("RAM", ram) +
+    hw.disks.map((d) => row("Laufwerk", d)).join("") +
+    row("Bildwiederholrate", hw.refresh ? `${hw.refresh} Hz` : "") +
+    row("Windows", `${(hw.os || "Windows").replace("Microsoft ", "")}, Build ${hw.build}`);
+  const games = GAMES.map((g) =>
+    hw.flags.includes(g.flag)
+      ? `<li><button type="button" class="game" data-goto="${g.cat}"><span>${esc(g.label)}</span><span class="badge ok">Gefunden</span></button></li>`
+      : `<li><div class="game na"><span>${esc(g.label)}</span><span class="badge out">Nicht gefunden</span></div></li>`
+  ).join("");
+  return `<div class="sysinfo"><section class="card info" aria-label="Erkannte Hardware"><h2>Erkannt</h2><dl>${facts}</dl></section><section class="card info" aria-label="Erkannte Spiele"><h2>Spiele</h2><ul class="games">${games}</ul></section></div>`;
 }
 
 function statusBadge(t) {
@@ -369,8 +398,9 @@ function renderList() {
   const home = state.category === "all" && !state.query.trim() && state.filter === "all";
   $("toolbar").hidden = page;
   if (page) return renderBench();
+  const info = state.category === "hardware" && !state.query.trim() ? systemInfo() : "";
   if (state.loading && !state.tweaks.length) {
-    list.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+    list.innerHTML = info + '<div class="skeleton"></div>'.repeat(6);
     return;
   }
   if (home) {
@@ -379,11 +409,11 @@ function renderList() {
   }
   const items = visible();
   if (!items.length) {
-    list.innerHTML = '<div class="empty">Keine Tweaks für diese Auswahl.</div>';
+    list.innerHTML = info + '<div class="empty">Keine Tweaks für diese Auswahl.</div>';
     return;
   }
   // Suche und Filter über alle Kategorien: flache Liste mit Einstufung als Badge
-  list.innerHTML = state.category === "all" ? items.sort(byName).map((t) => card(t, true)).join("") : grouped(items);
+  list.innerHTML = info + (state.category === "all" ? items.sort(byName).map((t) => card(t, true)).join("") : grouped(items));
 }
 
 function render() {
@@ -401,13 +431,17 @@ function render() {
 }
 
 // ---------- Ereignisse ----------
-$("nav").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-cat]");
-  if (!btn) return;
-  state.category = btn.dataset.cat;
+function openCategory(id) {
+  state.category = id;
   $("main").scrollTop = 0;
   render();
-});
+}
+for (const el of [$("nav"), $("hw")]) {
+  el.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-cat]");
+    if (btn) openCategory(btn.dataset.cat);
+  });
+}
 $("filters").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-filter]");
   if (!btn) return;
@@ -435,11 +469,9 @@ $("list").addEventListener("click", (e) => {
 $("list").addEventListener("click", (e) => {
   if (e.target.id === "bench-run") return void runBench();
   const tile = e.target.closest(".tile");
-  if (tile) {
-    state.category = tile.dataset.cat;
-    $("main").scrollTop = 0;
-    render();
-  }
+  if (tile) return void openCategory(tile.dataset.cat);
+  const game = e.target.closest("[data-goto]");
+  if (game) openCategory(game.dataset.goto);
 });
 $("btn-presets").addEventListener("click", openPresets);
 $("presets").addEventListener("click", (e) => {
