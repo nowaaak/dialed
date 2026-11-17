@@ -3,15 +3,15 @@
 const tauri = window.__TAURI__;
 const CATEGORIES = [
   { id: "all", label: "Übersicht", icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
-  { id: "windows", label: "Windows & Latenz", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: "windows", label: "Windows & Latenz", section: "System", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
   { id: "power", label: "Energie", icon: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>' },
   { id: "gpu", label: "Grafik", icon: '<rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="12" r="2"/>' },
-  { id: "storage", label: "SSD / HDD", icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18M7 17h.01"/>' },
+  { id: "storage", label: "Laufwerke", icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18M7 17h.01"/>' },
   { id: "network", label: "Netzwerk", icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>' },
-  { id: "debloat", label: "Debloat", icon: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>' },
-  { id: "fortnite", label: "Fortnite", icon: '<path d="M6 12h4M8 10v4M15 13h.01M18 11h.01"/><rect x="2" y="6" width="20" height="12" rx="4"/>' },
+  { id: "debloat", label: "Aufräumen", icon: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>' },
+  { id: "fortnite", label: "Fortnite", section: "Spiele", icon: '<path d="M6 12h4M8 10v4M15 13h.01M18 11h.01"/><rect x="2" y="6" width="20" height="12" rx="4"/>' },
   { id: "games", label: "Weitere Spiele", icon: '<path d="m12 3 2.6 5.6 6 .7-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.3l6-.7z"/>' },
-  { id: "hardware", label: "BIOS / RAM / CPU", icon: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>' },
+  { id: "hardware", label: "Hardware-Check", section: "Prüfen", icon: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>' },
   { id: "bench", label: "Benchmark", page: true, icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
 ];
 const TWEAK_CATEGORIES = CATEGORIES.filter((c) => !c.page && c.id !== "all");
@@ -23,11 +23,28 @@ const PRESETS = [
   { id: "notebook", name: "Notebook", text: "Alles aus „Sicher“, dazu weniger Hintergrundaktivität. Nichts, was Akkulaufzeit kostet.", ids: [...SAFE.filter((x) => x !== "power.usb_suspend_off"), "debloat.background_apps"] },
 ];
 const EVIDENCE = {
-  A: ["Belegt", "Wirkung ist gemessen und reproduzierbar"],
-  B: ["Plausibel", "Teils gemessen, hängt stark vom System ab"],
-  C: ["Umstritten", "Nur Einzelberichte, selbst testen"],
+  A: "Wirkung ist gemessen und reproduzierbar.",
+  B: "Wirkung ist plausibel und teils gemessen, hängt aber vom System ab.",
+  C: "Wirkung ist umstritten, es gibt nur Einzelberichte. Am besten mit dem Benchmark prüfen.",
 };
-const RISK = { low: null, medium: ["Mittleres Risiko", "warn"], high: ["Hohes Risiko", "bad"] };
+// Einstufung: fasst Beleglage und Risiko zu einer verständlichen Gruppe zusammen
+const TIERS = [
+  { id: "recommended", label: "Empfohlen", hint: "Belegt oder plausibel, niedriges Risiko", cls: "ok" },
+  { id: "optional", label: "Optional", hint: "Sinnvoll, aber mit Nebenwirkung, die du kennen solltest", cls: "out" },
+  { id: "experimental", label: "Experimentell", hint: "Wirkung umstritten, selbst testen", cls: "warn" },
+  { id: "risky", label: "Mit Vorsicht", hint: "Greift in Sicherheitsfunktionen ein", cls: "bad" },
+  { id: "check", label: "Prüfungen", hint: "Wird nur erkannt, nicht geschaltet", cls: "out" },
+  { id: "action", label: "Einmalige Aktionen", hint: "Kein Dauerzustand", cls: "out" },
+];
+function tierOf(t) {
+  if (t.kind === "check") return "check";
+  if (t.kind === "oneshot") return "action";
+  if (t.risk === "high") return "risky";
+  if (t.evidence === "C") return "experimental";
+  if (t.risk === "medium" || t.irreversible) return "optional";
+  return "recommended";
+}
+const tier = (id) => TIERS.find((x) => x.id === id);
 
 const state = { bench: [], benchBusy: false, tweaks: [], hardware: null, category: "all", filter: "all", query: "", open: new Set(), busy: new Set(), loading: true };
 const $ = (id) => document.getElementById(id);
@@ -245,7 +262,8 @@ function renderNav() {
     const items = state.tweaks.filter((t) => (c.id === "all" || t.category === c.id) && countable(t));
     const on = items.filter((t) => t.status === "active").length;
     const count = c.page || (state.loading && !state.tweaks.length) ? "" : `<span class="count">${on}/${items.length}</span>`;
-    return `<button type="button" data-cat="${c.id}" ${state.category === c.id ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${c.icon}</svg>${esc(c.label)}${count}</button>`;
+    const section = c.section ? `<div class="navsec">${esc(c.section)}</div>` : "";
+    return `${section}<button type="button" data-cat="${c.id}" ${state.category === c.id ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24" aria-hidden="true">${c.icon}</svg>${esc(c.label)}${count}</button>`;
   }).join("");
 }
 
@@ -275,16 +293,14 @@ function statusBadge(t) {
   return "";
 }
 
-function card(t) {
+function card(t, showTier) {
   const busy = state.busy.has(t.id);
-  const ev = EVIDENCE[t.evidence] || [t.evidence, ""];
-  const risk = RISK[t.risk];
+  const tr = tier(tierOf(t));
   const badges = [
     statusBadge(t),
     t.drift ? '<span class="badge bad" title="Von Dialed gesetzt, aber inzwischen wieder geändert, etwa durch ein Windows- oder Treiber-Update">Abweichung</span>' : "",
-    `<span class="badge out" title="${esc(ev[1])}">${esc(ev[0])}</span>`,
-    risk ? `<span class="badge ${risk[1]}">${risk[0]}</span>` : "",
-    t.reboot ? '<span class="badge out">Neustart</span>' : "",
+    showTier && t.kind === "toggle" ? `<span class="badge ${tr.cls}" title="${esc(tr.hint)}">${esc(tr.label)}</span>` : "",
+    t.reboot ? '<span class="badge out" title="Wirkt erst nach einem Neustart">Neustart</span>' : "",
   ].join("");
 
   let control = "";
@@ -312,17 +328,50 @@ function card(t) {
       </div>
       <div class="ctl">${control}<button type="button" class="more" data-more="${esc(t.id)}" aria-label="Details" aria-expanded="${open}"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></div>
     </div>
-    <div class="details">${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}${table}</div>
+    <div class="details">${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}${t.kind === "toggle" ? `<p class="evidence">${esc(EVIDENCE[t.evidence] || "")}</p>` : ""}${table}</div>
   </article>`;
+}
+
+const byName = (a, b) => a.name.localeCompare(b.name, "de");
+
+function grouped(items) {
+  return TIERS.map((tr) => {
+    const group = items.filter((t) => tierOf(t) === tr.id).sort(byName);
+    return group.length ? `<div class="group">${esc(tr.label)}<span>${esc(tr.hint)}</span></div>` + group.map((t) => card(t, false)).join("") : "";
+  }).join("");
+}
+
+function overview() {
+  const tiles = TWEAK_CATEGORIES.map((c) => {
+    const items = state.tweaks.filter((t) => t.category === c.id && countable(t));
+    const on = items.filter((t) => t.status === "active").length;
+    const pct = items.length ? Math.round((on / items.length) * 100) : 0;
+    return `<button type="button" class="tile" data-cat="${c.id}"><svg viewBox="0 0 24 24" aria-hidden="true">${c.icon}</svg><strong>${esc(c.label)}</strong><span>${on} von ${items.length} aktiv</span><i><b style="width:${pct}%"></b></i></button>`;
+  }).join("");
+  const drift = state.tweaks.filter((t) => t.drift);
+  const open = state.tweaks.filter((t) => tierOf(t) === "recommended" && (t.status === "inactive" || t.status === "partial")).sort(byName);
+  const failed = state.tweaks.filter((t) => t.status === "error");
+  const section = (title, hint, items) => (items.length ? `<div class="group">${esc(title)}<span>${esc(hint)}</span></div>` + items.map((t) => card(t, false)).join("") : "");
+  return (
+    `<div class="tiles">${tiles}</div>` +
+    section("Abweichungen", "Von Dialed gesetzt, aber inzwischen wieder geändert", drift) +
+    section("Fehler", "Diese Einträge ließen sich nicht auslesen", failed) +
+    (open.length ? section("Empfohlen und noch nicht aktiv", "Belegt oder plausibel, niedriges Risiko", open) : '<div class="empty">Alle empfohlenen Tweaks sind aktiv.</div>')
+  );
 }
 
 function renderList() {
   const list = $("list");
   const page = state.category === "bench";
+  const home = state.category === "all" && !state.query.trim() && state.filter === "all";
   $("toolbar").hidden = page;
   if (page) return renderBench();
   if (state.loading && !state.tweaks.length) {
     list.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+    return;
+  }
+  if (home) {
+    list.innerHTML = overview();
     return;
   }
   const items = visible();
@@ -330,16 +379,8 @@ function renderList() {
     list.innerHTML = '<div class="empty">Keine Tweaks für diese Auswahl.</div>';
     return;
   }
-  if (state.category !== "all") {
-    list.innerHTML = items.map(card).join("");
-    return;
-  }
-  list.innerHTML = TWEAK_CATEGORIES
-    .map((c) => {
-      const group = items.filter((t) => t.category === c.id);
-      return group.length ? `<div class="group">${esc(c.label)}</div>` + group.map(card).join("") : "";
-    })
-    .join("");
+  // Suche und Filter über alle Kategorien: flache Liste mit Einstufung als Badge
+  list.innerHTML = state.category === "all" ? items.sort(byName).map((t) => card(t, true)).join("") : grouped(items);
 }
 
 function render() {
@@ -389,7 +430,13 @@ $("list").addEventListener("click", (e) => {
   }
 });
 $("list").addEventListener("click", (e) => {
-  if (e.target.id === "bench-run") runBench();
+  if (e.target.id === "bench-run") return void runBench();
+  const tile = e.target.closest(".tile");
+  if (tile) {
+    state.category = tile.dataset.cat;
+    $("main").scrollTop = 0;
+    render();
+  }
 });
 $("btn-presets").addEventListener("click", openPresets);
 $("presets").addEventListener("click", (e) => {
