@@ -3,7 +3,7 @@
 Windows-Tweaking-Tool mit Zustandserkennung. Jeder Tweak wird erkannt, angewendet und sauber zurückgesetzt. Bereits aktive Tweaks sind in der Oberfläche markiert, auch wenn sie nicht von Dialed gesetzt wurden.
 
 - **Stack:** Rust + Tauri 2, Oberfläche ohne Build-Schritt (HTML, CSS, JS in `ui/`)
-- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 67 Einträge in 10 Kategorien
+- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 66 Einträge in 10 Kategorien
 - **Hardware:** CPU, GPU, RAM, Laufwerke, Notebook oder Desktop und Windows-Build werden beim Scan erkannt. Unpassende Tweaks sind ausgegraut.
 - **Undo:** Vor dem Anwenden landet der echte Vorher-Wert im Journal (`%APPDATA%\Dialed\journal.json`). Zurücksetzen stellt genau diesen Wert wieder her.
 - **Presets:** „Sicher“, „Competitive“ und „Notebook“ aktivieren mehrere Tweaks auf einmal.
@@ -99,5 +99,5 @@ ui               Oberfläche
 
 - Vor größeren Änderungen in der App einen Wiederherstellungspunkt anlegen.
 - GTA V: Dialed fasst nur die `settings.xml` im Dokumente-Ordner und das NVIDIA-Treiberprofil des Spiels an. Mods und alles, was in den Spielprozess eingreift, bleiben wegen BattlEye draußen.
-- Fortnite: Dialed fasst nur Windows-Einstellungen und die `GameUserSettings.ini` an. Nichts greift in den laufenden Prozess ein. Die Prioritäts-Tweaks über Image File Execution Options sind von Epic nicht offiziell freigegeben.
+- Fortnite: Dialed fasst nur Windows-Einstellungen und die `GameUserSettings.ini` an. Nichts greift in den laufenden Prozess ein. Die Prioritäts-Tweaks über Image File Execution Options sind von Epic nicht offiziell freigegeben. „Fortnite ohne CPU 0“ fehlt bewusst: Launcher und Anti-Cheat-Starter erben die Zuweisung, das Spiel selbst läuft aber wieder auf allen Kernen (gemessen mit `GetProcessAffinityMask`).
 - Schrift: Geist (SIL Open Font License, siehe `ui/fonts/LICENSE-Geist.txt`).
