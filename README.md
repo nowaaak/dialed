@@ -47,16 +47,14 @@ Einmalige Einrichtung: Doppelklick auf `setup-release.cmd`. Das Skript nutzt dei
 
 Das Repo muss öffentlich sein, sonst kann die App die Releases nicht laden.
 
-Neue Version veröffentlichen:
+Neue Version veröffentlichen: Version in `src-tauri/tauri.conf.json` und `src-tauri/Cargo.toml` erhöhen und auf `main` pushen.
 
 ```powershell
-# Version in src-tauri/tauri.conf.json und src-tauri/Cargo.toml erhöhen, dann
-git commit -am "release 0.2.0"
-git tag v0.2.0
-git push --follow-tags
+git commit -am "chore: release 0.2.0"
+git push
 ```
 
-Der Workflow `.github/workflows/release.yml` baut den NSIS-Installer, lädt ihn samt `latest.json` ins Release hoch und veröffentlicht es. Für einen lokalen `cargo tauri build` müssen dieselben zwei Variablen als Umgebungsvariablen gesetzt sein.
+Der Workflow `.github/workflows/release.yml` erkennt die neue Version, legt den Tag `v<Version>` an, baut den NSIS-Installer, lädt ihn samt `latest.json` ins Release hoch und veröffentlicht es. Für einen lokalen `cargo tauri build` müssen dieselben zwei Variablen als Umgebungsvariablen gesetzt sein.
 
 ## Einen Tweak hinzufügen
 

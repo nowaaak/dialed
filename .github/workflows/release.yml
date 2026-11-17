@@ -1,9 +1,14 @@
 name: Release
 
-# Ein Tag wie v0.2.0 baut den Installer, signiert das Update und veröffentlicht das Release.
+# Builds and publishes a release whenever the version in tauri.conf.json changes on main.
+# The tag v<version> is created by the action; nothing happens if that release already exists.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - src-tauri/tauri.conf.json
+      - .github/workflows/release.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,23 +18,40 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Read version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(grep -m1 '"version"' src-tauri/tauri.conf.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$version already exists, nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.exists != 'true'
       - uses: Swatinem/rust-cache@v2
+        if: steps.version.outputs.exists != 'true'
         with:
           cache-bin: true
       - name: Tests
+        if: steps.version.outputs.exists != 'true'
         run: cargo test -p dialed-core
-      - name: Tauri-CLI installieren
+      - name: Install Tauri CLI
+        if: steps.version.outputs.exists != 'true'
         run: cargo install tauri-cli --version "^2" --locked
       - uses: tauri-apps/tauri-action@v0
+        if: steps.version.outputs.exists != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tauriScript: cargo tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: Dialed ${{ github.ref_name }}
-          releaseBody: Änderungen siehe Commits seit dem letzten Release.
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: Dialed ${{ steps.version.outputs.tag }}
+          releaseBody: See the commit history for changes since the previous release.
           releaseDraft: false
           prerelease: false
