@@ -332,7 +332,11 @@ risk = "low"
 requires = ["win11"]
 [[tweak.actions]]
 type = "ps"
-detect = "if (Get-ScheduledTask -TaskName 'Dialed Timer Resolution') { '1' } else { '0' }"
+detect = '''
+$t = Get-ScheduledTask -TaskName 'Dialed Timer Resolution'
+# Nur aktiv, wenn die Aufgabe auf diese Dialed.exe zeigt (nicht auf einen alten Entwicklungs-Build)
+if ($t -and $t.Actions[0].Execute -eq $env:DIALED_EXE) { '1' } else { '0' }
+'''
 expect = "1"
 apply = '''
 $exe = $env:DIALED_EXE

@@ -98,12 +98,15 @@ mod timer {
     #[link(name = "kernel32")]
     extern "system" {
         fn GetCurrentProcess() -> isize;
+        fn FreeConsole() -> i32;
         fn SetProcessInformation(process: isize, class: i32, info: *const c_void, size: u32)
             -> i32;
     }
 
     pub fn hold() -> ! {
         unsafe {
+            // Debug-Builds haben ein Konsolenfenster, das hier niemand braucht.
+            FreeConsole();
             // Windows 11 ignoriert Timer-Anfragen von Prozessen ohne sichtbares Fenster,
             // außer der Prozess schaltet diese Drosselung für sich ab.
             let state = PowerThrottlingState {
