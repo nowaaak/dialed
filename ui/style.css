@@ -102,13 +102,6 @@ nav svg { width: 16px; height: 16px; flex: none; }
 nav .count { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
 .update { margin-top: auto; display: flex; flex-direction: column; gap: 0.6rem; padding: 0.75rem; border-radius: var(--radius); border: 1px solid color-mix(in oklch, var(--primary) 45%, transparent); background: color-mix(in oklch, var(--primary) 10%, transparent); font-size: 13px; }
 .update div { display: flex; flex-direction: column; }
-.update:not([hidden]) + .hw { margin-top: 0; }
-.hw { margin-top: auto; }
-.hw-box { width: 100%; padding: 0.75rem; border-radius: var(--radius); border: 1px solid var(--border); background: color-mix(in oklch, var(--sidebar-accent) 35%, transparent); font-size: 12px; text-align: left; display: flex; flex-direction: column; gap: 0.35rem; transition: border-color 0.15s; }
-button.hw-box:hover { border-color: color-mix(in oklch, var(--primary) 45%, transparent); }
-.hw-title { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); margin-bottom: 0.15rem; }
-.hw-row { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hw .k { color: var(--muted-foreground); margin-right: 0.35rem; }
 
 /* Inhalt */
 .panel { min-height: 0; overflow: hidden; border-top: 1px solid var(--border); border-left: 1px solid var(--border); border-top-left-radius: 1.125rem; background: var(--background); }

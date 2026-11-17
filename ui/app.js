@@ -278,21 +278,6 @@ function cpuName(hw) {
   return hw.cpu.replace(/\((R|TM)\)/gi, "").replace(/\s+\d+-Core Processor/i, "").replace(/\s+CPU.*$/i, "").trim();
 }
 
-function renderHardware() {
-  const hw = state.hardware;
-  if (!hw || !hw.cpu) {
-    $("hw").innerHTML = `<div class="hw-box"><span class="hw-title">System</span><span class="muted">${state.loading ? "Wird erkannt …" : "Nicht erkannt"}</span></div>`;
-    return;
-  }
-  const row = (k, v) => (v ? `<span class="hw-row" title="${esc(v)}"><span class="k">${k}</span>${esc(v)}</span>` : "");
-  $("hw").innerHTML =
-    `<button type="button" class="hw-box" data-cat="hardware" title="Alles Erkannte im Hardware-Check anzeigen">` +
-    `<span class="hw-title">${hw.laptop ? "Notebook" : "Desktop"}</span>` +
-    row("CPU", cpuName(hw)) +
-    hw.gpus.map((g) => row("GPU", g)).join("") +
-    `</button>`;
-}
-
 function systemInfo() {
   const hw = state.hardware;
   if (!hw || !hw.cpu) return '<div class="sysinfo"><div class="skeleton sys"></div><div class="skeleton sys"></div></div>';
@@ -421,7 +406,6 @@ function render() {
   $("title").textContent = cat.label;
   $("tb-page").textContent = cat.label;
   renderNav();
-  renderHardware();
   renderList();
   const all = state.tweaks.filter(countable);
   const on = all.filter((t) => t.status === "active").length;
@@ -436,12 +420,10 @@ function openCategory(id) {
   $("main").scrollTop = 0;
   render();
 }
-for (const el of [$("nav"), $("hw")]) {
-  el.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-cat]");
-    if (btn) openCategory(btn.dataset.cat);
-  });
-}
+$("nav").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-cat]");
+  if (btn) openCategory(btn.dataset.cat);
+});
 $("filters").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-filter]");
   if (!btn) return;
