@@ -27,9 +27,9 @@ pub trait Sys: Send + Sync {
     fn env(&self, name: &str) -> Option<String>;
     fn data_dir(&self) -> PathBuf;
     /// NVIDIA-Treibereinstellungen (Basisprofil) lesen. None = nicht gesetzt.
-    fn nv_read(&self, ids: &[u32]) -> Result<Vec<Option<u32>>, String>;
+    fn nv_read(&self, app: Option<&str>, ids: &[u32]) -> Result<Vec<Option<u32>>, String>;
     /// NVIDIA-Treibereinstellung setzen (Some) oder auf Treiberstandard zurück (None).
-    fn nv_write(&self, id: u32, value: Option<u32>) -> Result<(), String>;
+    fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String>;
 }
 
 pub struct WinSys;
@@ -181,12 +181,12 @@ mod win {
             dir
         }
 
-        fn nv_read(&self, ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
-            crate::nv::read(ids)
+        fn nv_read(&self, app: Option<&str>, ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
+            crate::nv::read(app, ids)
         }
 
-        fn nv_write(&self, id: u32, value: Option<u32>) -> Result<(), String> {
-            crate::nv::write(id, value)
+        fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
+            crate::nv::write(app, id, value)
         }
     }
 }
@@ -218,10 +218,10 @@ impl Sys for WinSys {
     fn data_dir(&self) -> PathBuf {
         std::env::temp_dir().join("dialed")
     }
-    fn nv_read(&self, _: &[u32]) -> Result<Vec<Option<u32>>, String> {
+    fn nv_read(&self, _: Option<&str>, _: &[u32]) -> Result<Vec<Option<u32>>, String> {
         Err("nur unter Windows".into())
     }
-    fn nv_write(&self, _: u32, _: Option<u32>) -> Result<(), String> {
+    fn nv_write(&self, _: Option<&str>, _: u32, _: Option<u32>) -> Result<(), String> {
         Err("nur unter Windows".into())
     }
 }

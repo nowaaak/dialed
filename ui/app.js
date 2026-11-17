@@ -10,6 +10,7 @@ const CATEGORIES = [
   { id: "network", label: "Netzwerk", icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>' },
   { id: "debloat", label: "Aufräumen", icon: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>' },
   { id: "fortnite", label: "Fortnite", section: "Spiele", icon: '<path d="M6 12h4M8 10v4M15 13h.01M18 11h.01"/><rect x="2" y="6" width="20" height="12" rx="4"/>' },
+  { id: "gta", label: "GTA V", icon: '<path d="M5 17h14M6 17l1.5-6h9L18 17M8 11l1-3h6l1 3"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/>' },
   { id: "games", label: "Weitere Spiele", icon: '<path d="m12 3 2.6 5.6 6 .7-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.3l6-.7z"/>' },
   { id: "hardware", label: "Hardware-Check", section: "Prüfen", icon: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>' },
   { id: "bench", label: "Benchmark", page: true, icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
@@ -281,7 +282,9 @@ function renderHardware() {
     hw.gpus.map((g) => row("GPU", g)).join("") +
     row("RAM", `${hw.ram_gb} GB${hw.ram_speed ? ` @ ${hw.ram_speed} MHz` : ""}`) +
     row("OS", `${hw.os.replace("Microsoft ", "")} (${hw.build})`) +
-    (hw.flags.includes("fortnite") ? row("Spiel", "Fortnite gefunden") : "");
+    (hw.flags.includes("fortnite") ? row("Spiel", "Fortnite gefunden") : "") +
+    (hw.flags.includes("gta_legacy") ? row("Spiel", "GTA V Legacy gefunden") : "") +
+    (hw.flags.includes("gta_enhanced") ? row("Spiel", "GTA V Enhanced gefunden") : "");
 }
 
 function statusBadge(t) {

@@ -145,6 +145,50 @@ pub fn ini_set(text: &str, section: &str, key: &str, value: Option<&str>) -> Str
     out
 }
 
+fn xml_element(text: &str, from: usize, to: usize, name: &str) -> Option<(usize, usize)> {
+    let mut pos = from;
+    while let Some(i) = text[pos..to].find('<') {
+        let start = pos + i;
+        let rest = &text[start + 1..to];
+        if rest.starts_with(name)
+            && rest[name.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_whitespace() || c == '>' || c == '/')
+        {
+            let end = start + 1 + rest.find('>')? + 1;
+            return Some((start, end));
+        }
+        pos = start + 1;
+    }
+    None
+}
+
+fn xml_value_span(text: &str, path: &str) -> Option<(usize, usize)> {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let (leaf, parents) = parts.split_last()?;
+    let (mut from, mut to) = (0, text.len());
+    for p in parents {
+        let (_, open_end) = xml_element(text, from, to, p)?;
+        let close = text[open_end..to].find(&format!("</{p}>"))? + open_end;
+        (from, to) = (open_end, close);
+    }
+    let (start, end) = xml_element(text, from, to, leaf)?;
+    let tag = &text[start..end];
+    let attr = tag.find("value=\"")? + start + "value=\"".len();
+    let close = text[attr..end].find('"')? + attr;
+    Some((attr, close))
+}
+
+pub fn xml_get(text: &str, path: &str) -> Option<String> {
+    xml_value_span(text, path).map(|(a, b)| text[a..b].to_string())
+}
+
+pub fn xml_set(text: &str, path: &str, value: &str) -> Option<String> {
+    let (a, b) = xml_value_span(text, path)?;
+    Some(format!("{}{value}{}", &text[..a], &text[b..]))
+}
+
 /// Ersetzt %VAR% über die übergebene Lookup-Funktion.
 pub fn expand_env(s: &str, lookup: impl Fn(&str) -> Option<String>) -> String {
     let mut out = String::new();
@@ -217,6 +261,33 @@ mod tests {
         assert_eq!(c, a);
         let d = ini_set("", "S", "k", Some("v"));
         assert_eq!(ini_get(&d, "S", "k").as_deref(), Some("v"));
+    }
+
+    #[test]
+    fn xml_roundtrip() {
+        let src = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n\r\n<Settings>\r\n  <graphics>\r\n    <ReflectionQuality value=\"1\" />\r\n    <DX_Version value=\"2\" />\r\n  </graphics>\r\n  <video>\r\n    <RefreshRate value=\"60\" />\r\n    <ReflexMode value=\"0\" />\r\n    <FrameLimit value=\"90\" />\r\n  </video>\r\n  <Presets>\r\n    <ReflectionQuality value=\"0\" />\r\n  </Presets>\r\n</Settings>\r\n";
+        assert_eq!(
+            xml_get(src, "Settings/graphics/DX_Version").as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            xml_get(src, "Settings/Presets/ReflectionQuality").as_deref(),
+            Some("0")
+        );
+        assert_eq!(
+            xml_get(src, "Settings/graphics/ReflectionQuality").as_deref(),
+            Some("1")
+        );
+        assert_eq!(xml_get(src, "Settings/video/Reflex"), None);
+        assert_eq!(xml_get(src, "Settings/graphics/ReflexMode"), None);
+        let a = xml_set(src, "Settings/video/ReflexMode", "1").unwrap();
+        assert_eq!(
+            xml_get(&a, "Settings/video/ReflexMode").as_deref(),
+            Some("1")
+        );
+        assert_eq!(a.len(), src.len());
+        assert_eq!(xml_set(&a, "Settings/video/ReflexMode", "0").unwrap(), src);
+        assert!(xml_set(src, "Settings/video/Missing", "1").is_none());
     }
 
     #[test]

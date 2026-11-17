@@ -88,7 +88,19 @@ pub enum Action {
         default: Option<String>,
     },
     /// NVIDIA-Treibereinstellung (DWORD) im Basisprofil. `setting` ist die Kennung aus NvApiDriverSettings.h.
-    NvidiaDrs { setting: Val, apply: Val },
+    NvidiaDrs {
+        setting: Val,
+        apply: Val,
+        #[serde(default)]
+        app: Option<String>,
+    },
+    Xml {
+        file: String,
+        path: String,
+        apply: String,
+        #[serde(default)]
+        default: Option<String>,
+    },
     /// DWORD unter jedem PCI-Gerät einer Geräteklasse (z. B. MSI-Mode der GPU).
     DeviceRegistry {
         class_guid: String,

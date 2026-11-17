@@ -3,7 +3,7 @@
 Windows-Tweaking-Tool mit Zustandserkennung. Jeder Tweak wird erkannt, angewendet und sauber zurückgesetzt. Bereits aktive Tweaks sind in der Oberfläche markiert, auch wenn sie nicht von Dialed gesetzt wurden.
 
 - **Stack:** Rust + Tauri 2, Oberfläche ohne Build-Schritt (HTML, CSS, JS in `ui/`)
-- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 62 Einträge in 9 Kategorien
+- **Tweaks:** deklarativ als TOML in `crates/core/tweaks/`, aktuell 67 Einträge in 10 Kategorien
 - **Hardware:** CPU, GPU, RAM, Laufwerke, Notebook oder Desktop und Windows-Build werden beim Scan erkannt. Unpassende Tweaks sind ausgegraut.
 - **Undo:** Vor dem Anwenden landet der echte Vorher-Wert im Journal (`%APPDATA%\Dialed\journal.json`). Zurücksetzen stellt genau diesen Wert wieder her.
 - **Presets:** „Sicher“, „Competitive“ und „Notebook“ aktivieren mehrere Tweaks auf einmal.
@@ -65,15 +65,16 @@ Ein neuer Block in einer Datei unter `crates/core/tweaks/` genügt, Code muss da
 [[tweak]]
 id = "kernel.global_timer_resolution"
 name = "Globale Timer-Resolution (Windows 11)"
-category = "windows"          # windows | power | gpu | storage | network | debloat | fortnite | games | hardware
+category = "windows"          # windows | power | gpu | storage | network | debloat | fortnite | gta | games | hardware
 description = "…"
 evidence = "A"                # A belegt, B plausibel, C umstritten
 risk = "low"                  # low | medium | high
 reboot = true
 requires = ["win11"]          # Flags, mit ! verneint: cpu.amd, cpu.intel, gpu.nvidia, gpu.amd, gpu.intel,
-                              # laptop, desktop, win10, win11, hdd, ssd, nvme, x3d_dual_ccd, dell, fortnite
+                              # laptop, desktop, win10, win11, hdd, ssd, nvme, x3d_dual_ccd, dell, fortnite,
+                              # gta_legacy, gta_enhanced
 [[tweak.actions]]
-type = "registry"             # registry | bcd | powercfg | ps | ini | device_registry | nvidia_drs
+type = "registry"             # registry | bcd | powercfg | ps | ini | xml | device_registry | nvidia_drs
 hive = "HKLM"
 path = 'SYSTEM\CurrentControlSet\Control\Session Manager\kernel'
 name = "GlobalTimerResolutionRequests"
@@ -82,6 +83,8 @@ apply = 1                     # default weggelassen = Windows-Standard ist „We
 ```
 
 `kind = "check"` macht aus einem Eintrag eine reine Erkennung (BIOS, RAM), `kind = "oneshot"` eine einmalige Aktion.
+
+`xml` ändert das Attribut `value` eines Elements, der Pfad führt über die Elementnamen (`path = "Settings/video/ReflexMode"`). In Dateipfaden steht `%DOCUMENTS%` für den echten Dokumente-Ordner, auch wenn er umgeleitet ist. `nvidia_drs` schreibt ohne `app` ins Basisprofil, mit `app = "GTA5.exe"` ins Treiberprofil dieser Anwendung.
 
 ## Aufbau
 
@@ -95,5 +98,6 @@ ui               Oberfläche
 ## Hinweise
 
 - Vor größeren Änderungen in der App einen Wiederherstellungspunkt anlegen.
+- GTA V: Dialed fasst nur die `settings.xml` im Dokumente-Ordner und das NVIDIA-Treiberprofil des Spiels an. Mods und alles, was in den Spielprozess eingreift, bleiben wegen BattlEye draußen.
 - Fortnite: Dialed fasst nur Windows-Einstellungen und die `GameUserSettings.ini` an. Nichts greift in den laufenden Prozess ein. Die Prioritäts-Tweaks über Image File Execution Options sind von Epic nicht offiziell freigegeben.
 - Schrift: Geist (SIL Open Font License, siehe `ui/fonts/LICENSE-Geist.txt`).

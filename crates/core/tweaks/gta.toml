@@ -1,0 +1,111 @@
+[[tweak]]
+id = "gta.enh_reflex"
+name = "Enhanced: NVIDIA Reflex an"
+category = "gta"
+description = "Schaltet NVIDIA Reflex in der settings.xml von GTA V Enhanced ein. Reflex hält die Warteschlange zwischen CPU und GPU leer und senkt so die Eingabelatenz, vor allem wenn die Grafikkarte limitiert."
+note = "GTA V vorher schließen. Der Wert 1 steht für „An“, „An + Boost“ stellst du im Spielmenü ein."
+evidence = "A"
+risk = "low"
+requires = ["gta_enhanced", "gpu.nvidia"]
+[[tweak.actions]]
+type = "xml"
+file = '%DOCUMENTS%\Rockstar Games\GTAV Enhanced\settings.xml'
+path = "Settings/video/ReflexMode"
+apply = "1"
+default = "0"
+
+[[tweak]]
+id = "gta.enh_fps_cap"
+name = "Enhanced: FPS-Limit 3 unter der Bildwiederholrate"
+category = "gta"
+description = "Setzt FrameLimit in der settings.xml von GTA V Enhanced auf die höchste Bildwiederholrate deiner Monitore minus 3. Mit G-SYNC oder FreeSync bleibt das Spiel so im VRR-Bereich, ohne V-Sync-Latenz."
+note = "GTA V vorher schließen. Ein niedrigeres Frame-Limit im NVIDIA-Profil von GTA5_Enhanced.exe hat Vorrang."
+evidence = "A"
+risk = "low"
+requires = ["gta_enhanced"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
+if (-not (Test-Path $f)) { 'GTA V Enhanced nicht gefunden' } else {
+  $hz = (Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+  $m = Select-String -Path $f -Pattern '<FrameLimit value="(\d+)"' | Select-Object -First 1
+  if ($m -and [int]$m.Matches[0].Groups[1].Value -eq ($hz - 3)) { '1' } else { '0' }
+}
+'''
+expect = "1"
+apply = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
+if (-not (Test-Path $f)) { throw 'settings.xml von GTA V Enhanced nicht gefunden' }
+$hz = [int](Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+if ($hz -lt 50) { throw 'Bildwiederholrate nicht erkannt' }
+$text = [IO.File]::ReadAllText($f)
+$m = [regex]::Match($text, '<FrameLimit value="(\d+)"')
+if (-not $m.Success) { throw 'FrameLimit steht nicht in der Datei, einmal im Spiel ein Limit setzen' }
+New-Item -ItemType Directory -Path "$env:APPDATA\Dialed" -Force | Out-Null
+[IO.File]::WriteAllText("$env:APPDATA\Dialed\gta-enh-fps-prev.txt", $m.Groups[1].Value)
+$v = $hz - 3
+[IO.File]::WriteAllText($f, [regex]::Replace($text, '<FrameLimit value="\d+"', "<FrameLimit value=`"$v`""))
+'''
+revert = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
+$p = "$env:APPDATA\Dialed\gta-enh-fps-prev.txt"
+if (-not (Test-Path $p)) { throw 'Vorher-Wert nicht gefunden, Limit bitte im Spiel einstellen' }
+$v = ([IO.File]::ReadAllText($p)).Trim()
+$text = [IO.File]::ReadAllText($f)
+[IO.File]::WriteAllText($f, [regex]::Replace($text, '<FrameLimit value="\d+"', "<FrameLimit value=`"$v`""))
+Remove-Item $p
+'''
+
+[[tweak]]
+id = "gta.enh_directstorage"
+name = "Enhanced: DirectStorage auf NVMe"
+category = "gta"
+kind = "check"
+description = "GTA V Enhanced lädt über DirectStorage, wenn das Spiel auf einer NVMe-SSD liegt. Auf SATA-SSDs und Festplatten fallen die Ladezeiten länger aus."
+note = "Zeigt den Bustyp des Laufwerks, auf dem das Spiel installiert ist. Umziehen geht über den jeweiligen Launcher."
+evidence = "B"
+risk = "low"
+requires = ["gta_enhanced"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$k = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Rockstar Games\GTAV Enhanced' -ErrorAction SilentlyContinue
+$dir = if ($k) { $k.PSObject.Properties | Where-Object { $_.Name -like 'InstallFolder*' -and $_.Value } | Select-Object -First 1 -ExpandProperty Value }
+if (-not $dir) { 'Installationsordner nicht gefunden' } else {
+  $bus = (Get-Partition -DriveLetter $dir.Substring(0, 1) | Get-Disk).BusType
+  if ($bus -eq 'NVMe') { '1' } else { "$bus" }
+}
+'''
+expect = "1"
+
+[[tweak]]
+id = "gta.legacy_dx11"
+name = "Legacy: DirectX 11"
+category = "gta"
+kind = "check"
+description = "GTA V Legacy läuft mit DirectX 11. Nur dieser Modus bietet alle Grafikoptionen, DirectX 10 und 10.1 sind für sehr alte Grafikkarten gedacht."
+note = "Umstellen im Spiel unter Grafik → DirectX-Version."
+evidence = "A"
+risk = "low"
+requires = ["gta_legacy"]
+[[tweak.actions]]
+type = "xml"
+file = '%DOCUMENTS%\Rockstar Games\GTA V\settings.xml'
+path = "Settings/graphics/DX_Version"
+apply = "2"
+
+[[tweak]]
+id = "gta.legacy_fps_cap"
+name = "Legacy: FPS-Limit 185 gegen Ruckler"
+category = "gta"
+description = "GTA V Legacy ruckelt hart, sobald die Bildrate über etwa 188 FPS steigt. Die Grenze kommt aus der Audio-Engine. Dialed setzt im NVIDIA-Profil von GTA5.exe ein Frame-Limit von 185."
+note = "Gilt nur für GTA5.exe, nicht für Enhanced. Mit VRR-Monitor unter 185 Hz ist ein Limit knapp unter der Bildwiederholrate besser, das stellst du in der NVIDIA App ein."
+evidence = "B"
+risk = "low"
+requires = ["gta_legacy", "gpu.nvidia"]
+[[tweak.actions]]
+type = "nvidia_drs"
+app = "GTA5.exe"
+setting = "0x10835002"
+apply = 185

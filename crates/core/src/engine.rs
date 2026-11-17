@@ -12,6 +12,19 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 const FORTNITE_INI: &str =
     r"%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini";
 const PCI_ENUM: &str = r"SYSTEM\CurrentControlSet\Enum\PCI";
+const SHELL_FOLDERS: &str =
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders";
+const GAME_FLAGS: &[(&str, &str)] = &[
+    ("fortnite", FORTNITE_INI),
+    (
+        "gta_legacy",
+        r"%DOCUMENTS%\Rockstar Games\GTA V\settings.xml",
+    ),
+    (
+        "gta_enhanced",
+        r"%DOCUMENTS%\Rockstar Games\GTAV Enhanced\settings.xml",
+    ),
+];
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Entry {
@@ -36,7 +49,7 @@ pub struct ScanResult {
 struct Ctx {
     bcd: Result<HashMap<String, String>, String>,
     ps: Result<HashMap<String, String>, String>,
-    nv: Result<HashMap<u32, Option<u32>>, String>,
+    nv: HashMap<Option<String>, Result<HashMap<u32, Option<u32>>, String>>,
 }
 
 enum Obs {
@@ -87,6 +100,7 @@ fn target(a: &Action) -> Option<String> {
         Action::Ini { apply, .. } => Some(apply.clone()),
         Action::DeviceRegistry { apply, .. } => Some(apply.to_string()),
         Action::NvidiaDrs { apply, .. } => Some(num(apply).to_string()),
+        Action::Xml { apply, .. } => Some(apply.clone()),
     }
 }
 
@@ -96,7 +110,7 @@ fn default_of(a: &Action) -> Option<String> {
         Action::Registry { kind, default, .. } => default.as_ref().map(|v| norm_reg(*kind, v)),
         Action::Bcd { default, .. } => default.as_ref().map(|v| parse::norm_bcd(&v.text())),
         Action::Powercfg { default, .. } => default.map(|v| v.to_string()),
-        Action::Ini { default, .. } => default.clone(),
+        Action::Ini { default, .. } | Action::Xml { default, .. } => default.clone(),
         Action::Ps { .. } | Action::DeviceRegistry { .. } | Action::NvidiaDrs { .. } => None,
     }
 }
@@ -119,7 +133,10 @@ fn action_key(a: &Action) -> Option<String> {
             name,
             ..
         } => format!("dev|{class_guid}|{subpath}|{name}"),
-        Action::NvidiaDrs { setting, .. } => format!("nv|{}", num(setting)),
+        Action::NvidiaDrs { setting, app, .. } => {
+            format!("nv|{}|{}", app.as_deref().unwrap_or(""), num(setting))
+        }
+        Action::Xml { file, path, .. } => format!("xml|{file}|{path}"),
         Action::Ps { .. } => return None,
     };
     Some(key.to_lowercase())
@@ -146,7 +163,15 @@ fn label(a: &Action) -> String {
         Action::Ps { .. } => "PowerShell-Abfrage".into(),
         Action::Ini { key, .. } => format!("GameUserSettings.ini → {key}"),
         Action::DeviceRegistry { name, .. } => format!("Geräte-Registry → {name}"),
-        Action::NvidiaDrs { setting, .. } => format!("NVIDIA-Treiberprofil {:#010x}", num(setting)),
+        Action::NvidiaDrs { setting, app, .. } => match app {
+            Some(app) => format!("NVIDIA-Profil {app} → {:#010x}", num(setting)),
+            None => format!("NVIDIA-Treiberprofil {:#010x}", num(setting)),
+        },
+        Action::Xml { file, path, .. } => {
+            let name = file.rsplit(['\\', '/']).next().unwrap_or(file);
+            let leaf = path.rsplit('/').next().unwrap_or(path);
+            format!("{name} → {leaf}")
+        }
     }
 }
 
@@ -172,7 +197,23 @@ impl<S: Sys> Engine<S> {
     }
 
     fn expand(&self, path: &str) -> String {
-        parse::expand_env(path, |n| self.sys.env(n))
+        parse::expand_env(path, |n| {
+            if n.eq_ignore_ascii_case("DOCUMENTS") {
+                Some(self.documents())
+            } else {
+                self.sys.env(n)
+            }
+        })
+    }
+
+    fn documents(&self) -> String {
+        let raw = self
+            .sys
+            .reg_get("HKCU", SHELL_FOLDERS, "Personal", RegKind::Sz)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| r"%USERPROFILE%\Documents".into());
+        parse::expand_env(&raw, |n| self.sys.env(n))
     }
 
     fn find(&self, id: &str) -> Result<&Tweak, String> {
@@ -223,21 +264,25 @@ impl<S: Sys> Engine<S> {
     fn read_nv<'a>(
         &self,
         tweaks: impl Iterator<Item = &'a Tweak>,
-    ) -> Result<HashMap<u32, Option<u32>>, String> {
-        let mut ids: Vec<u32> = tweaks
-            .flat_map(|t| t.actions.iter())
-            .filter_map(|a| match a {
-                Action::NvidiaDrs { setting, .. } => Some(num(setting)),
-                _ => None,
-            })
-            .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        if ids.is_empty() {
-            return Ok(HashMap::new());
+    ) -> HashMap<Option<String>, Result<HashMap<u32, Option<u32>>, String>> {
+        let mut wanted: BTreeMap<Option<String>, Vec<u32>> = BTreeMap::new();
+        for a in tweaks.flat_map(|t| t.actions.iter()) {
+            if let Action::NvidiaDrs { setting, app, .. } = a {
+                wanted.entry(app.clone()).or_default().push(num(setting));
+            }
         }
-        let values = self.sys.nv_read(&ids)?;
-        Ok(ids.into_iter().zip(values).collect())
+        wanted
+            .into_iter()
+            .map(|(app, mut ids)| {
+                ids.sort_unstable();
+                ids.dedup();
+                let values = self
+                    .sys
+                    .nv_read(app.as_deref(), &ids)
+                    .map(|v| ids.into_iter().zip(v).collect());
+                (app, values)
+            })
+            .collect()
     }
 
     /// Kontext für einen einzelnen Tweak (nur die Abfragen, die er braucht).
@@ -368,14 +413,22 @@ impl<S: Sys> Engine<S> {
                 }
                 Err(_) => Obs::Unsupported("Konfigurationsdatei nicht gefunden".into()),
             },
-            Action::NvidiaDrs { setting, .. } => match &ctx.nv {
-                Ok(map) => value(
+            Action::NvidiaDrs { setting, app, .. } => match ctx.nv.get(app) {
+                Some(Ok(map)) => value(
                     map.get(&num(setting))
                         .copied()
                         .flatten()
                         .map(|v| v.to_string()),
                 ),
-                Err(e) => Obs::Error(e.clone()),
+                Some(Err(e)) => Obs::Error(e.clone()),
+                None => Obs::Error("NVIDIA-Treiber nicht abgefragt".into()),
+            },
+            Action::Xml { file, path, .. } => match std::fs::read_to_string(self.expand(file)) {
+                Ok(text) => match parse::xml_get(&text, path) {
+                    Some(v) => value(Some(v)),
+                    None => Obs::Unsupported("Einstellung steht nicht in der Datei".into()),
+                },
+                Err(_) => Obs::Unsupported("Konfigurationsdatei nicht gefunden".into()),
             },
             Action::DeviceRegistry {
                 class_guid,
@@ -506,8 +559,10 @@ impl<S: Sys> Engine<S> {
             Ok(v) => hardware::from_json(v.get("hw").unwrap_or(&serde_json::Value::Null)),
             Err(_) => Hardware::default(),
         };
-        if std::path::Path::new(&self.expand(FORTNITE_INI)).exists() {
-            hw.flags.insert("fortnite".into());
+        for (flag, file) in GAME_FLAGS {
+            if std::path::Path::new(&self.expand(file)).exists() {
+                hw.flags.insert(flag.to_string());
+            }
         }
         let ctx = Ctx {
             bcd,
@@ -612,12 +667,22 @@ impl<S: Sys> Engine<S> {
                 }
                 Ok(())
             }
-            Action::NvidiaDrs { setting, .. } => {
+            Action::NvidiaDrs { setting, app, .. } => {
                 let value = match val {
                     Some(v) => Some(parse::parse_u64(v).ok_or("ungültiger Wert")? as u32),
                     None => None,
                 };
-                self.sys.nv_write(num(setting), value)
+                self.sys.nv_write(app.as_deref(), num(setting), value)
+            }
+            Action::Xml { file, path, .. } => {
+                let Some(v) = val else {
+                    return Ok(());
+                };
+                let file = self.expand(file);
+                let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+                let new = parse::xml_set(&text, path, v)
+                    .ok_or_else(|| format!("{path} steht nicht in {file}"))?;
+                std::fs::write(&file, new).map_err(|e| format!("{file}: {e}"))
             }
             Action::Ps { .. } => Err("interner Fehler: PowerShell-Aktion".into()),
         }
@@ -855,7 +920,7 @@ mod tests {
     struct Mock {
         reg: Mutex<HashMap<String, String>>,
         bcd: Mutex<BTreeMap<String, String>>,
-        nv: Mutex<HashMap<u32, u32>>,
+        nv: Mutex<HashMap<(Option<String>, u32), u32>>,
         dir: PathBuf,
     }
 
@@ -898,22 +963,27 @@ mod tests {
         fn ps(&self, _: &str) -> Result<String, String> {
             Ok(r#"{"hw":{"cpu":"Intel(R) Core(TM) i5","cpu_vendor":"GenuineIntel","build":26200,"gpus":["NVIDIA GeForce RTX 3060"],"chassis":[3],"battery":0},"detect":{}}"#.into())
         }
-        fn env(&self, _: &str) -> Option<String> {
-            None
+        fn env(&self, name: &str) -> Option<String> {
+            (name == "USERPROFILE").then(|| self.dir.join("home").to_string_lossy().into_owned())
         }
         fn data_dir(&self) -> PathBuf {
             std::fs::create_dir_all(&self.dir).unwrap();
             self.dir.clone()
         }
-        fn nv_read(&self, ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
+        fn nv_read(&self, app: Option<&str>, ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
             let nv = self.nv.lock().unwrap();
-            Ok(ids.iter().map(|id| nv.get(id).copied()).collect())
+            let app = app.map(str::to_string);
+            Ok(ids
+                .iter()
+                .map(|id| nv.get(&(app.clone(), *id)).copied())
+                .collect())
         }
-        fn nv_write(&self, id: u32, value: Option<u32>) -> Result<(), String> {
+        fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
             let mut nv = self.nv.lock().unwrap();
+            let key = (app.map(str::to_string), id);
             match value {
-                Some(v) => nv.insert(id, v),
-                None => nv.remove(&id),
+                Some(v) => nv.insert(key, v),
+                None => nv.remove(&key),
             };
             Ok(())
         }
@@ -1116,15 +1186,71 @@ mod tests {
         let e = engine("nv");
         e.scan().unwrap();
         // Vorher im Treiber: adaptiv (0)
-        e.sys.nv.lock().unwrap().insert(0x1057_EB71, 0);
+        e.sys.nv.lock().unwrap().insert((None, 0x1057_EB71), 0);
         assert_eq!(e.apply("nv.power_max").unwrap().status, "active");
-        assert_eq!(e.sys.nv.lock().unwrap().get(&0x1057_EB71), Some(&1));
+        assert_eq!(e.sys.nv.lock().unwrap().get(&(None, 0x1057_EB71)), Some(&1));
         assert_eq!(e.revert("nv.power_max").unwrap().status, "inactive");
-        assert_eq!(e.sys.nv.lock().unwrap().get(&0x1057_EB71), Some(&0));
+        assert_eq!(e.sys.nv.lock().unwrap().get(&(None, 0x1057_EB71)), Some(&0));
         // Ohne Vorher-Wert geht es zurück auf den Treiberstandard
         e.apply("nv.prerender_1").unwrap();
         e.revert("nv.prerender_1").unwrap();
-        assert!(!e.sys.nv.lock().unwrap().contains_key(&0x007B_A09E));
+        assert!(!e.sys.nv.lock().unwrap().contains_key(&(None, 0x007B_A09E)));
+    }
+
+    #[test]
+    fn gta_settings_xml_and_app_profile() {
+        let e = engine("gta");
+        let scan = e.scan().unwrap();
+        assert_eq!(status(&scan, "gta.enh_reflex").status, "unsupported");
+        assert!(!scan.hardware.flags.contains("gta_enhanced"));
+
+        let docs = e
+            .sys
+            .dir
+            .join("home")
+            .join("Documents")
+            .join("Rockstar Games");
+        let enh = docs.join("GTAV Enhanced");
+        let legacy = docs.join("GTA V");
+        std::fs::create_dir_all(&enh).unwrap();
+        std::fs::create_dir_all(&legacy).unwrap();
+        let xml = "<Settings>\r\n  <video>\r\n    <ReflexMode value=\"0\" />\r\n  </video>\r\n</Settings>\r\n";
+        std::fs::write(enh.join("settings.xml"), xml).unwrap();
+        std::fs::write(
+            legacy.join("settings.xml"),
+            "<Settings>\r\n  <graphics>\r\n    <DX_Version value=\"2\" />\r\n  </graphics>\r\n</Settings>\r\n",
+        )
+        .unwrap();
+
+        let scan = e.scan().unwrap();
+        assert!(scan.hardware.flags.contains("gta_enhanced"));
+        assert!(scan.hardware.flags.contains("gta_legacy"));
+        assert_eq!(status(&scan, "gta.enh_reflex").status, "inactive");
+        assert_eq!(status(&scan, "gta.legacy_dx11").status, "active");
+
+        assert_eq!(e.apply("gta.enh_reflex").unwrap().status, "active");
+        let text = std::fs::read_to_string(enh.join("settings.xml")).unwrap();
+        assert!(text.contains("<ReflexMode value=\"1\" />"));
+        assert_eq!(e.revert("gta.enh_reflex").unwrap().status, "inactive");
+        assert_eq!(
+            std::fs::read_to_string(enh.join("settings.xml")).unwrap(),
+            xml
+        );
+
+        e.sys.nv.lock().unwrap().insert((None, 0x1083_5002), 60);
+        assert_eq!(
+            status(&e.scan().unwrap(), "gta.legacy_fps_cap").status,
+            "inactive"
+        );
+        assert_eq!(e.apply("gta.legacy_fps_cap").unwrap().status, "active");
+        let key = (Some("GTA5.exe".to_string()), 0x1083_5002);
+        assert_eq!(e.sys.nv.lock().unwrap().get(&key), Some(&185));
+        assert_eq!(
+            e.sys.nv.lock().unwrap().get(&(None, 0x1083_5002)),
+            Some(&60)
+        );
+        e.revert("gta.legacy_fps_cap").unwrap();
+        assert!(!e.sys.nv.lock().unwrap().contains_key(&key));
     }
 
     /// Schreibt einen Beispiel-Scan für die Browser-Vorschau der UI (ui/mock.json).

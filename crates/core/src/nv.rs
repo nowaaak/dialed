@@ -8,7 +8,9 @@ type Handle = *mut c_void;
 
 const OK: i32 = 0;
 const SETTING_NOT_FOUND: i32 = -160;
+const EXECUTABLE_NOT_FOUND: i32 = -166;
 const DWORD_TYPE: u32 = 0;
+const CURRENT_PROFILE_LOCATION: u32 = 0;
 
 // Funktionskennungen aus nvapi_interface.h
 const ID_INITIALIZE: u32 = 0x0150_E828;
@@ -20,6 +22,7 @@ const ID_GET_BASE_PROFILE: u32 = 0xDA84_66A0;
 const ID_GET_SETTING: u32 = 0x73BF_8338;
 const ID_SET_SETTING: u32 = 0x577D_D202;
 const ID_RESTORE_DEFAULT: u32 = 0x53F0_381E;
+const ID_FIND_APPLICATION: u32 = 0xEEE5_66B2;
 
 /// NVDRS_SETTING_V1 (pack 4). Die beiden Unions sind je 4100 Bytes groß
 /// (größtes Mitglied: NVDRS_BINARY_SETTING mit 4 + 4096 Bytes).
@@ -40,6 +43,18 @@ const _: () = assert!(size_of::<Setting>() == 12320);
 /// MAKE_NVAPI_VERSION(NVDRS_SETTING_V1, 1)
 const SETTING_VERSION: u32 = size_of::<Setting>() as u32 | (1 << 16);
 
+#[repr(C)]
+struct Application {
+    version: u32,
+    is_predefined: u32,
+    app_name: [u16; 2048],
+    friendly_name: [u16; 2048],
+    launcher: [u16; 2048],
+}
+
+const _: () = assert!(size_of::<Application>() == 12296);
+const APPLICATION_VERSION: u32 = size_of::<Application>() as u32 | (1 << 16);
+
 #[link(name = "kernel32")]
 extern "system" {
     fn LoadLibraryW(name: *const u16) -> *mut c_void;
@@ -54,6 +69,7 @@ type BaseProfileFn = unsafe extern "C" fn(Handle, *mut Handle) -> i32;
 type GetFn = unsafe extern "C" fn(Handle, Handle, u32, *mut Setting) -> i32;
 type SetFn = unsafe extern "C" fn(Handle, Handle, *mut Setting) -> i32;
 type RestoreFn = unsafe extern "C" fn(Handle, Handle, u32) -> i32;
+type FindAppFn = unsafe extern "C" fn(Handle, *const u16, *mut Handle, *mut Application) -> i32;
 
 fn check(status: i32, what: &str) -> Result<(), String> {
     if status == OK {
@@ -98,9 +114,10 @@ impl Api {
 }
 
 /// Öffnet eine Sitzung, lädt die Einstellungen und ruft `f` mit Sitzung und Basisprofil auf.
-fn with_base_profile<T>(
+fn with_profile<T>(
+    app: Option<&str>,
     save: bool,
-    f: impl FnOnce(&Api, Handle, Handle) -> Result<T, String>,
+    f: impl FnOnce(&Api, Handle, Option<Handle>) -> Result<T, String>,
 ) -> Result<T, String> {
     let api = Api::load()?;
     // SAFETY: Signaturen entsprechen den Deklarationen in nvapi.h (cdecl, x64).
@@ -110,7 +127,6 @@ fn with_base_profile<T>(
         let destroy: SessionFn = transmute(api.func(ID_DESTROY_SESSION)?);
         let load: SessionFn = transmute(api.func(ID_LOAD_SETTINGS)?);
         let store: SessionFn = transmute(api.func(ID_SAVE_SETTINGS)?);
-        let base: BaseProfileFn = transmute(api.func(ID_GET_BASE_PROFILE)?);
 
         check(init(), "Initialize")?;
         let mut session: Handle = null_mut();
@@ -118,8 +134,28 @@ fn with_base_profile<T>(
         let result = (|| {
             check(load(session), "LoadSettings")?;
             let mut profile: Handle = null_mut();
-            check(base(session, &mut profile), "GetBaseProfile")?;
-            let out = f(&api, session, profile)?;
+            let found = match app {
+                None => {
+                    let base: BaseProfileFn = transmute(api.func(ID_GET_BASE_PROFILE)?);
+                    check(base(session, &mut profile), "GetBaseProfile")?;
+                    true
+                }
+                Some(name) => {
+                    let find: FindAppFn = transmute(api.func(ID_FIND_APPLICATION)?);
+                    let mut wide = [0u16; 2048];
+                    for (slot, c) in wide.iter_mut().zip(name.encode_utf16().take(2047)) {
+                        *slot = c;
+                    }
+                    let mut info: Box<Application> = Box::new(zeroed());
+                    info.version = APPLICATION_VERSION;
+                    match find(session, wide.as_ptr(), &mut profile, &mut *info) {
+                        OK => true,
+                        EXECUTABLE_NOT_FOUND => false,
+                        status => check(status, "FindApplicationByName").map(|_| false)?,
+                    }
+                }
+            };
+            let out = f(&api, session, found.then_some(profile))?;
             if save {
                 check(store(session), "SaveSettings")?;
             }
@@ -139,23 +175,30 @@ fn new_setting(id: u32) -> Box<Setting> {
 }
 
 /// Liest DWORD-Einstellungen aus dem Basisprofil. None = im Profil nicht gesetzt.
-pub fn read(ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
+pub fn read(app: Option<&str>, ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    with_base_profile(false, |api, session, profile| {
+    with_profile(app, false, |api, session, profile| {
+        let Some(profile) = profile else {
+            return Ok(vec![None; ids.len()]);
+        };
         // SAFETY: Signatur laut nvapi.h; der Puffer hat die im Versionsfeld gemeldete Größe.
         let get: GetFn = unsafe { transmute(api.func(ID_GET_SETTING)?) };
         let mut out = Vec::with_capacity(ids.len());
         for &id in ids {
             let mut s = new_setting(id);
             match unsafe { get(session, profile, id, &mut *s) } {
-                OK if s.kind == DWORD_TYPE => out.push(Some(u32::from_le_bytes([
-                    s.current[0],
-                    s.current[1],
-                    s.current[2],
-                    s.current[3],
-                ]))),
+                OK if s.kind == DWORD_TYPE
+                    && (app.is_none() || s.location == CURRENT_PROFILE_LOCATION) =>
+                {
+                    out.push(Some(u32::from_le_bytes([
+                        s.current[0],
+                        s.current[1],
+                        s.current[2],
+                        s.current[3],
+                    ])))
+                }
                 OK | SETTING_NOT_FOUND => out.push(None),
                 status => {
                     return Err(format!(
@@ -169,9 +212,14 @@ pub fn read(ids: &[u32]) -> Result<Vec<Option<u32>>, String> {
 }
 
 /// Setzt eine DWORD-Einstellung (Some) oder stellt den Treiberstandard wieder her (None).
-pub fn write(id: u32, value: Option<u32>) -> Result<(), String> {
-    with_base_profile(true, |api, session, profile| match value {
-        Some(v) => {
+pub fn write(app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
+    with_profile(app, true, |api, session, profile| match (profile, value) {
+        (None, Some(_)) => Err(format!(
+            "Der NVIDIA-Treiber hat kein Profil für {}",
+            app.unwrap_or("das Basisprofil")
+        )),
+        (None, None) => Ok(()),
+        (Some(profile), Some(v)) => {
             // SAFETY: Signatur laut nvapi.h.
             let set: SetFn = unsafe { transmute(api.func(ID_SET_SETTING)?) };
             let mut s = new_setting(id);
@@ -179,7 +227,7 @@ pub fn write(id: u32, value: Option<u32>) -> Result<(), String> {
             s.current[..4].copy_from_slice(&v.to_le_bytes());
             check(unsafe { set(session, profile, &mut *s) }, "SetSetting")
         }
-        None => {
+        (Some(profile), None) => {
             // SAFETY: Signatur laut nvapi.h.
             let restore: RestoreFn = unsafe { transmute(api.func(ID_RESTORE_DEFAULT)?) };
             match unsafe { restore(session, profile, id) } {
