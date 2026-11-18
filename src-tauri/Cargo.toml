@@ -1,6 +1,6 @@
 [package]
 name = "dialed"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Windows-Tweaking-Tool mit Zustandserkennung"
 
