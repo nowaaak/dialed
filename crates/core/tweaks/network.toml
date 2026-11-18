@@ -37,21 +37,98 @@ apply = '''
 $a = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' }
 if (-not ($a | Get-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -ErrorAction SilentlyContinue)) { throw 'Kein aktiver Adapter mit dieser Option' }
 $a | Set-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -RegistryValue 0 -ErrorAction SilentlyContinue
+$names = @(Get-NetAdapter -Physical | ForEach-Object Name)
+Start-Sleep -Seconds 2
+$deadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $deadline -and @(Get-NetAdapter -Name $names -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' }).Count -eq 0) { Start-Sleep -Milliseconds 500 }
 '''
-revert = "Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Set-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -RegistryValue 1 -ErrorAction SilentlyContinue"
+revert = '''
+Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Set-NetAdapterAdvancedProperty -RegistryKeyword '*EEE' -RegistryValue 1 -ErrorAction SilentlyContinue
+$names = @(Get-NetAdapter -Physical | ForEach-Object Name)
+Start-Sleep -Seconds 2
+$deadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $deadline -and @(Get-NetAdapter -Name $names -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' }).Count -eq 0) { Start-Sleep -Milliseconds 500 }
+'''
 
 [[tweak]]
 id = "net.interrupt_moderation_check"
 name = "Interrupt Moderation an"
 category = "network"
 kind = "check"
-description = "Die Netzwerkkarte bündelt Interrupts. Viele Guides raten zum Abschalten, Messungen zeigen dabei aber eine höhere DPC-Latenz. Anlassen ist richtig."
-evidence = "A"
+description = "Die Netzwerkkarte bündelt Interrupts. Abschalten senkt laut Messungen die DPC-Latenz um wenige Mikrosekunden, erzeugt aber ein Vielfaches an Interrupts und CPU-Last. Für den Ping im Internet zählen Millisekunden, deshalb ist Anlassen der vernünftige Standard."
+evidence = "B"
 risk = "low"
 [[tweak.actions]]
 type = "ps"
 detect = '''
 $p = Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -RegistryKeyword '*InterruptModeration' -ErrorAction SilentlyContinue
 if ($p | Where-Object { "$($_.RegistryValue)" -eq '0' }) { '0' } else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "net.realtek_power_off"
+name = "Realtek-Energiesparfunktionen aus"
+category = "network"
+description = "Schaltet bei Realtek-Netzwerkkarten Green Ethernet und den Power Saving Mode ab, zusätzlich zu Energy Efficient Ethernet. Beide drosseln die Leitung bei wenig Verkehr."
+note = "Was die Funktionen genau tun, dokumentiert Realtek nicht öffentlich. Beim Umschalten ist die Verbindung für ein paar Sekunden weg."
+evidence = "C"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$p = @(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue | Where-Object { $_.RegistryKeyword -in 'EnableGreenEthernet', 'PowerSavingMode' })
+if ($p.Count -eq 0) { 'nicht vorhanden' } elseif ($p | Where-Object { "$($_.RegistryValue)" -ne '0' }) { '0' } else { '1' }
+'''
+expect = "1"
+apply = '''
+$p = @(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue | Where-Object { $_.RegistryKeyword -in 'EnableGreenEthernet', 'PowerSavingMode' })
+if ($p.Count -eq 0) { throw 'Kein aktiver Adapter mit diesen Optionen' }
+foreach ($x in $p) { Set-NetAdapterAdvancedProperty -Name $x.Name -RegistryKeyword $x.RegistryKeyword -RegistryValue 0 }
+$names = @(Get-NetAdapter -Physical | ForEach-Object Name)
+Start-Sleep -Seconds 2
+$deadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $deadline -and @(Get-NetAdapter -Name $names -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' }).Count -eq 0) { Start-Sleep -Milliseconds 500 }
+'''
+revert = '''
+$p = @(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue | Where-Object { $_.RegistryKeyword -in 'EnableGreenEthernet', 'PowerSavingMode' })
+foreach ($x in $p) { Set-NetAdapterAdvancedProperty -Name $x.Name -RegistryKeyword $x.RegistryKeyword -RegistryValue $x.DefaultRegistryValue }
+$names = @(Get-NetAdapter -Physical | ForEach-Object Name)
+Start-Sleep -Seconds 2
+$deadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $deadline -and @(Get-NetAdapter -Name $names -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' }).Count -eq 0) { Start-Sleep -Milliseconds 500 }
+'''
+
+[[tweak]]
+id = "net.update_bandwidth_limit"
+name = "Update-Downloads im Hintergrund drosseln"
+category = "network"
+description = "Windows Update und Store-Updates nutzen im Hintergrund höchstens 30 % der Bandbreite. Eine voll ausgelastete Leitung verursacht sonst Ping-Spitzen im Spiel."
+note = "Gilt nicht für Steam, Epic oder andere Launcher. Updates kommen etwas langsamer an."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
+name = "DOPercentageMaxBackgroundBandwidth"
+kind = "dword"
+apply = 30
+
+[[tweak]]
+id = "net.offload_check"
+name = "Prüfsummen-Offloads an"
+category = "network"
+kind = "check"
+description = "Die Netzwerkkarte berechnet Prüfsummen selbst statt der CPU. Microsoft empfiehlt das ausdrücklich auch für niedrige Latenz. Manche Gaming-Guides raten zum Abschalten, das kostet nur CPU-Zeit."
+note = "Einschalten im Geräte-Manager → Netzwerkadapter → Erweitert, die Checksum-Offload-Optionen auf „Rx & Tx aktiviert“."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$p = @(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' } | Get-NetAdapterAdvancedProperty -ErrorAction SilentlyContinue | Where-Object { $_.RegistryKeyword -in '*TCPChecksumOffloadIPv4', '*TCPChecksumOffloadIPv6', '*UDPChecksumOffloadIPv4', '*UDPChecksumOffloadIPv6' })
+$off = @($p | Where-Object { "$($_.RegistryValue)" -ne '3' })
+if ($p.Count -eq 0) { 'nicht vorhanden' } elseif ($off.Count -eq 0) { '1' } else { 'aus: ' + (($off | ForEach-Object { $_.DisplayName }) -join ', ') }
 '''
 expect = "1"

@@ -1,6 +1,6 @@
 //! Scan, Anwenden und Zurücksetzen. Vorher-Werte landen im Journal.
 use crate::bench::{self, BenchRun};
-use crate::hardware::{self, Hardware, HW_SCRIPT};
+use crate::hardware::{self, Display, Hardware, HW_SCRIPT};
 use crate::model::*;
 use crate::parse;
 use crate::sys::Sys;
@@ -24,6 +24,11 @@ const GAME_FLAGS: &[(&str, &str)] = &[
         "gta_enhanced",
         r"%DOCUMENTS%\Rockstar Games\GTAV Enhanced\settings.xml",
     ),
+    (
+        "minecraft",
+        r"%APPDATA%\norisk\NoRiskClientV3\data\profiles",
+    ),
+    ("minecraft", r"%APPDATA%\.minecraft\options.txt"),
 ];
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -150,6 +155,35 @@ fn write_config(path: &str, text: String) -> Result<(), String> {
         ),
         _ => format!("{path}: {e}"),
     })
+}
+
+fn ps_context(hw: &Hardware) -> String {
+    let plain: Vec<Display> = hw
+        .displays
+        .iter()
+        .map(|d| Display {
+            name: d.name.trim_start_matches(r"\\.\").to_string(),
+            ..d.clone()
+        })
+        .collect();
+    let displays = serde_json::to_string(&plain)
+        .unwrap_or_default()
+        .replace('\'', "''");
+    format!(
+        "$env:DIALED_REFRESH = '{}'\n$env:DIALED_DISPLAYS = '{}'\n$env:DIALED_VRR = '{}'\n",
+        hw.refresh,
+        displays,
+        u8::from(hw.vrr)
+    )
+}
+
+fn main_refresh(displays: &[Display]) -> u64 {
+    displays
+        .iter()
+        .find(|d| d.primary)
+        .or_else(|| displays.iter().max_by_key(|d| d.current))
+        .map(|d| d.current as u64)
+        .unwrap_or(0)
 }
 
 fn shares_setting(a: &Tweak, b: &Tweak) -> bool {
@@ -319,7 +353,10 @@ impl<S: Sys> Engine<S> {
         } else {
             Ok(HashMap::new())
         };
-        let mut script = String::from("$ErrorActionPreference='SilentlyContinue'\n$r=@{}\n");
+        let mut script = format!(
+            "$ErrorActionPreference='SilentlyContinue'\n{}$r=@{{}}\n",
+            ps_context(&self.hw.lock().unwrap())
+        );
         let before = script.len();
         Self::ps_detect_lines(t, &mut script);
         let ps = if script.len() == before {
@@ -566,7 +603,16 @@ impl<S: Sys> Engine<S> {
     /// Kompletter Scan: Hardware plus Zustand aller Tweaks.
     pub fn scan(&self) -> Result<ScanResult, String> {
         let started = Instant::now();
+        let displays = self.sys.displays();
+        let names: Vec<String> = displays.iter().map(|d| d.name.clone()).collect();
+        let context = Hardware {
+            refresh: main_refresh(&displays),
+            vrr: self.sys.nv_vrr(&names).unwrap_or(false),
+            displays,
+            ..Default::default()
+        };
         let mut script = String::from("$ErrorActionPreference='SilentlyContinue'\n");
+        script.push_str(&ps_context(&context));
         script.push_str(HW_SCRIPT);
         script.push_str("$r=@{}\n");
         for t in &self.tweaks {
@@ -589,6 +635,12 @@ impl<S: Sys> Engine<S> {
             Ok(v) => hardware::from_json(v.get("hw").unwrap_or(&serde_json::Value::Null)),
             Err(_) => Hardware::default(),
         };
+        hw.refresh = context.refresh;
+        hw.vrr = context.vrr;
+        hw.displays = context.displays;
+        if hw.vrr {
+            hw.flags.insert("vrr".into());
+        }
         for (flag, file) in GAME_FLAGS {
             if std::path::Path::new(&self.expand(file)).exists() {
                 hw.flags.insert(flag.to_string());
@@ -719,7 +771,10 @@ impl<S: Sys> Engine<S> {
 
     fn run_ps(&self, script: &str) -> Result<String, String> {
         self.sys
-            .ps(&format!("$ErrorActionPreference='Stop'\n{script}"))
+            .ps(&format!(
+                "$ErrorActionPreference='Stop'\n{}{script}",
+                ps_context(&self.hw.lock().unwrap())
+            ))
             // PowerShell hängt Zeilennummer und Kategorie an, die erste Zeile ist die eigentliche Meldung
             .map_err(|e| {
                 e.lines()
@@ -950,6 +1005,7 @@ mod tests {
         reg: Mutex<HashMap<String, String>>,
         bcd: Mutex<BTreeMap<String, String>>,
         nv: Mutex<HashMap<(Option<String>, u32), u32>>,
+        vrr: bool,
         dir: PathBuf,
     }
 
@@ -1006,6 +1062,19 @@ mod tests {
                 .iter()
                 .map(|id| nv.get(&(app.clone(), *id)).copied())
                 .collect())
+        }
+        fn displays(&self) -> Vec<Display> {
+            vec![Display {
+                name: r"\\.\DISPLAY1".into(),
+                width: 2560,
+                height: 1440,
+                current: 144,
+                max: 144,
+                primary: true,
+            }]
+        }
+        fn nv_vrr(&self, _: &[String]) -> Result<bool, String> {
+            Ok(self.vrr)
         }
         fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
             let mut nv = self.nv.lock().unwrap();
@@ -1296,6 +1365,35 @@ mod tests {
             std::fs::read_to_string(enh.join("settings.xml")).unwrap(),
             xml
         );
+    }
+
+    #[test]
+    fn gsync_entries_follow_vrr_and_refresh() {
+        let e = engine("vrr");
+        let scan = e.scan().unwrap();
+        assert_eq!(scan.hardware.refresh, 144);
+        assert_eq!(status(&scan, "nv.gsync_fps_cap").status, "unsupported");
+
+        let dir = std::env::temp_dir().join(format!("dialed-test-vrr2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let e = Engine::new(Mock {
+            dir,
+            vrr: true,
+            ..Default::default()
+        });
+        let scan = e.scan().unwrap();
+        assert!(scan.hardware.flags.contains("vrr"));
+        let view = status(&scan, "nv.gsync_fps_cap");
+        assert_eq!(view.status, "inactive");
+        assert_eq!(view.actions[0].target, "141");
+        e.apply("nv.gsync_fps_cap").unwrap();
+        e.apply("nv.gsync_vsync").unwrap();
+        let nv = e.sys.nv.lock().unwrap().clone();
+        assert_eq!(nv.get(&(None, 0x1083_5002)), Some(&141));
+        assert_eq!(nv.get(&(None, 0x00A8_79CF)), Some(&0x4781_4940));
+        drop(nv);
+        e.revert("nv.gsync_vsync").unwrap();
+        assert!(!e.sys.nv.lock().unwrap().contains_key(&(None, 0x00A8_79CF)));
     }
 
     /// Schreibt einen Beispiel-Scan für die Browser-Vorschau der UI (ui/mock.json).

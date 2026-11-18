@@ -168,3 +168,26 @@ path = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize'
 name = "StartupDelayInMSec"
 kind = "dword"
 apply = 0
+
+[[tweak]]
+id = "debloat.edge_background_off"
+name = "Edge-Startboost und Hintergrundmodus aus"
+category = "debloat"
+description = "Edge lädt nicht mehr bei der Anmeldung vor und läuft nach dem Schließen des letzten Fensters nicht weiter. Das spart Arbeitsspeicher und Hintergrundaktivität."
+note = "Edge zeigt danach „Von deiner Organisation verwaltet“. Das kommt von den Richtlinien, die Dialed dafür setzt."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Edge'
+name = "StartupBoostEnabled"
+kind = "dword"
+apply = 0
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Edge'
+name = "BackgroundModeEnabled"
+kind = "dword"
+apply = 0

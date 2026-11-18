@@ -16,7 +16,6 @@ $hw = @{
   cores     = [int]$cpu.NumberOfCores
   threads   = [int]$cpu.NumberOfLogicalProcessors
   gpus      = @($vc | ForEach-Object { "$($_.Name)" })
-  refresh   = [int]($vc | Measure-Object CurrentRefreshRate -Maximum).Maximum
   ram_gb    = [int][math]::Round((($mem | Measure-Object Capacity -Sum).Sum) / 1GB)
   ram_modules = [int]$mem.Count
   ram_speed = [int]($mem | Select-Object -First 1).ConfiguredClockSpeed
@@ -29,6 +28,16 @@ $hw = @{
   disks     = @(Get-PhysicalDisk | ForEach-Object { @{ name = "$($_.FriendlyName)"; media = "$($_.MediaType)"; bus = "$($_.BusType)" } })
 }
 "#;
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct Display {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub current: u32,
+    pub max: u32,
+    pub primary: bool,
+}
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Hardware {
@@ -43,6 +52,8 @@ pub struct Hardware {
     pub build: u64,
     pub model: String,
     pub refresh: u64,
+    pub displays: Vec<Display>,
+    pub vrr: bool,
     pub laptop: bool,
     pub disks: Vec<String>,
     pub flags: BTreeSet<String>,
@@ -83,7 +94,6 @@ pub fn from_json(v: &Value) -> Hardware {
         ram_speed: n(v, "ram_speed"),
         os: s(v, "os"),
         build: n(v, "build"),
-        refresh: n(v, "refresh"),
         model: format!("{} {}", s(v, "vendor"), s(v, "model"))
             .trim()
             .to_string(),

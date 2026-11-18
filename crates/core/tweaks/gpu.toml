@@ -111,3 +111,150 @@ requires = ["gpu.nvidia"]
 type = "nvidia_drs"
 setting = "0x00AC8497"
 apply = "0xFFFFFFFF"
+
+[[tweak]]
+id = "nv.refresh_highest"
+name = "NVIDIA: Bevorzugte Bildwiederholrate höchste verfügbare"
+category = "gpu"
+description = "Spiele im exklusiven Vollbild, die selbst 60 Hz anfordern, laufen mit der höchsten Bildwiederholrate des Monitors. Betrifft vor allem ältere DirectX-9- und DirectX-11-Spiele."
+note = "Ohne Wirkung im randlosen Fenster."
+evidence = "B"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x0064B541"
+apply = 1
+
+[[tweak]]
+id = "display.refresh_check"
+name = "Monitore mit höchster Bildwiederholrate"
+category = "gpu"
+kind = "check"
+description = "Jeder Monitor läuft in Windows mit der höchsten Bildwiederholrate, die er bei der eingestellten Auflösung kann. Nach Treiber-Updates oder neuen Kabeln steht er oft wieder auf 60 Hz."
+note = "Ändern unter Einstellungen → System → Anzeige → Erweiterte Anzeige."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$d = @($env:DIALED_DISPLAYS | ConvertFrom-Json | ForEach-Object { $_ })
+$low = @($d | Where-Object { $_.current -lt $_.max })
+if ($d.Count -eq 0) { 'keine Monitore erkannt' } elseif ($low.Count -eq 0) { '1' } else { ($low | ForEach-Object { "$($_.name) läuft mit $($_.current) statt $($_.max) Hz" }) -join ', ' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "gfx.mpo_check"
+name = "Multiplane Overlay nicht abgeschaltet"
+category = "gpu"
+kind = "check"
+description = "Viele Guides schalten Multiplane Overlay (MPO) ab. Das hilft nur gegen Flackern auf bestimmten Systemen und kostet randlosen Spielen den schnellsten Ausgabeweg (Independent Flip), also Latenz."
+note = "Ist MPO absichtlich wegen Flackern aus, kannst du diese Prüfung ignorieren. Sonst den Wert OverlayTestMode unter HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm löschen und neu starten."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if ((Get-ItemProperty -LiteralPath 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\Dwm' -Name OverlayTestMode -ErrorAction SilentlyContinue).OverlayTestMode -eq 5) { '0' } else { '1' }"
+expect = "1"
+
+[[tweak]]
+id = "gpu.rebar_check"
+name = "Resizable BAR aktiv"
+category = "gpu"
+kind = "check"
+description = "Die CPU kann den gesamten Grafikspeicher auf einmal ansprechen. NVIDIA nutzt das in Spielen, für die es getestet ist."
+note = "Einschalten im BIOS: „Above 4G Decoding“ und „Re-Size BAR Support“ an, CSM aus."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { 'nvidia-smi nicht gefunden' } else {
+  $q = (& nvidia-smi -q -d MEMORY) -join "`n"
+  $fb = [regex]::Match($q, 'FB Memory Usage\s+Total\s+:\s+(\d+)').Groups[1].Value
+  $bar = [regex]::Match($q, 'BAR1 Memory Usage\s+Total\s+:\s+(\d+)').Groups[1].Value
+  if (-not $fb -or -not $bar) { 'nicht lesbar' } elseif ([int]$bar -ge [int]$fb) { '1' } else { "BAR1 nur $bar MiB" }
+}
+'''
+expect = "1"
+
+[[tweak]]
+id = "gpu.pcie_check"
+name = "Grafikkarte mit voller PCIe-Anbindung"
+category = "gpu"
+kind = "check"
+description = "Die Grafikkarte läuft mit allen Lanes und der höchsten PCIe-Generation, die Karte und Mainboard gemeinsam können. Ein falscher Steckplatz oder eine BIOS-Einstellung halbiert sonst die Bandbreite."
+note = "Steckt die Karte im obersten langen Steckplatz? Im BIOS die PCIe-Generation auf Auto stellen."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { 'nvidia-smi nicht gefunden' } else {
+  $v = ((& nvidia-smi --query-gpu=pcie.link.gen.max,pcie.link.gen.gpumax,pcie.link.gen.hostmax,pcie.link.width.current,pcie.link.width.max --format=csv,noheader,nounits) | Select-Object -First 1) -split ',\s*'
+  $p = @()
+  if ([int]$v[3] -lt [int]$v[4]) { $p += "x$($v[3]) statt x$($v[4])" }
+  if ([int]$v[0] -lt [math]::Min([int]$v[1], [int]$v[2])) { $p += "PCIe $($v[0]).0 statt $([math]::Min([int]$v[1], [int]$v[2])).0" }
+  if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
+}
+'''
+expect = "1"
+
+[[tweak]]
+id = "gpu.vrr_check"
+name = "G-SYNC aktiv"
+category = "gpu"
+kind = "check"
+description = "Der NVIDIA-Treiber meldet für mindestens einen Monitor G-SYNC oder G-SYNC Compatible als möglich und eingeschaltet. Erst dann erscheinen die G-SYNC-Einstellungen von Dialed."
+note = "Einschalten in der NVIDIA-Systemsteuerung → Anzeige → G-SYNC einrichten. Bei FreeSync-Monitoren vorher FreeSync im Monitormenü aktivieren."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia"]
+[[tweak.actions]]
+type = "ps"
+detect = "if ($env:DIALED_VRR -eq '1') { '1' } else { '0' }"
+expect = "1"
+
+[[tweak]]
+id = "nv.gsync_vsync"
+name = "G-SYNC: V-Sync im Treiber an"
+category = "gpu"
+description = "Teil des Setups nach Blur Busters: Mit G-SYNC verhindert V-Sync im Treiber Tearing an der Obergrenze und bei Frametime-Spitzen, ohne die klassische V-Sync-Verzögerung, solange die FPS unter der Bildwiederholrate bleiben. V-Sync im Spiel bleibt aus."
+note = "Gehört mit „G-SYNC: FPS-Limit 3 unter der Bildwiederholrate“ zusammen."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia", "vrr"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x00A879CF"
+apply = "0x47814940"
+
+[[tweak]]
+id = "nv.gsync_fps_cap"
+name = "G-SYNC: FPS-Limit 3 unter der Bildwiederholrate"
+category = "gpu"
+description = "Setzt im NVIDIA-Treiber ein globales FPS-Limit knapp unter der Bildwiederholrate. Damit bleibt jedes Spiel im G-SYNC-Bereich und V-Sync greift nie mit voller Verzögerung."
+note = "Ein Limit im Spiel ist etwas direkter. Spiele mit Reflex begrenzen ohnehin selbst etwas tiefer. Das niedrigere Limit gewinnt."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia", "vrr"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x10835002"
+apply = "refresh-3"
+
+[[tweak]]
+id = "nv.gsync_indicator"
+name = "G-SYNC: Anzeige im Spiel"
+category = "gpu"
+description = "Der Treiber blendet ein kleines G-SYNC-Symbol ein, solange G-SYNC tatsächlich greift. Praktisch, um das Setup zu prüfen."
+evidence = "A"
+risk = "low"
+requires = ["gpu.nvidia", "vrr"]
+[[tweak.actions]]
+type = "nvidia_drs"
+setting = "0x1095F16F"
+apply = 1

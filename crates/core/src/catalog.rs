@@ -12,13 +12,14 @@ const FILES: &[(&str, &str)] = &[
     ("fortnite.toml", include_str!("../tweaks/fortnite.toml")),
     ("gta.toml", include_str!("../tweaks/gta.toml")),
     ("network.toml", include_str!("../tweaks/network.toml")),
+    ("input.toml", include_str!("../tweaks/input.toml")),
     ("games.toml", include_str!("../tweaks/games.toml")),
     ("hardware.toml", include_str!("../tweaks/hardware.toml")),
 ];
 
 pub const CATEGORIES: &[&str] = &[
-    "windows", "power", "gpu", "storage", "network", "debloat", "fortnite", "gta", "games",
-    "hardware",
+    "windows", "power", "gpu", "storage", "network", "input", "debloat", "fortnite", "gta",
+    "games", "hardware",
 ];
 
 #[derive(Deserialize)]

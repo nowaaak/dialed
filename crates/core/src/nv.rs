@@ -23,6 +23,8 @@ const ID_GET_SETTING: u32 = 0x73BF_8338;
 const ID_SET_SETTING: u32 = 0x577D_D202;
 const ID_RESTORE_DEFAULT: u32 = 0x53F0_381E;
 const ID_FIND_APPLICATION: u32 = 0xEEE5_66B2;
+const ID_DISPLAY_ID_BY_NAME: u32 = 0xAE45_7190;
+const ID_GET_VRR_INFO: u32 = 0xDF8F_DA57;
 
 /// NVDRS_SETTING_V1 (pack 4). Die beiden Unions sind je 4100 Bytes groß
 /// (größtes Mitglied: NVDRS_BINARY_SETTING mit 4 + 4096 Bytes).
@@ -55,6 +57,20 @@ struct Application {
 const _: () = assert!(size_of::<Application>() == 12296);
 const APPLICATION_VERSION: u32 = size_of::<Application>() as u32 | (1 << 16);
 
+#[repr(C)]
+struct VrrInfo {
+    version: u32,
+    flags: u32,
+    reserved: [u32; 4],
+}
+
+const _: () = assert!(size_of::<VrrInfo>() == 24);
+const VRR_INFO_VERSION: u32 = size_of::<VrrInfo>() as u32 | (1 << 16);
+const VRR_ENABLED: u32 = 1;
+const VRR_POSSIBLE: u32 = 1 << 1;
+const VRR_REQUESTED: u32 = 1 << 2;
+const VRR_DISPLAY_IN_MODE: u32 = 1 << 4;
+
 #[link(name = "kernel32")]
 extern "system" {
     fn LoadLibraryW(name: *const u16) -> *mut c_void;
@@ -69,6 +85,8 @@ type BaseProfileFn = unsafe extern "C" fn(Handle, *mut Handle) -> i32;
 type GetFn = unsafe extern "C" fn(Handle, Handle, u32, *mut Setting) -> i32;
 type SetFn = unsafe extern "C" fn(Handle, Handle, *mut Setting) -> i32;
 type RestoreFn = unsafe extern "C" fn(Handle, Handle, u32) -> i32;
+type DisplayIdFn = unsafe extern "C" fn(*const u8, *mut u32) -> i32;
+type VrrFn = unsafe extern "C" fn(u32, *mut VrrInfo) -> i32;
 type FindAppFn = unsafe extern "C" fn(Handle, *const u16, *mut Handle, *mut Application) -> i32;
 
 fn check(status: i32, what: &str) -> Result<(), String> {
@@ -238,4 +256,35 @@ pub fn write(app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), Strin
             }
         }
     })
+}
+
+pub fn vrr_flags(displays: &[String]) -> Result<Vec<u32>, String> {
+    let api = Api::load()?;
+    unsafe {
+        let init: InitFn = transmute(api.func(ID_INITIALIZE)?);
+        check(init(), "Initialize")?;
+        let by_name: DisplayIdFn = transmute(api.func(ID_DISPLAY_ID_BY_NAME)?);
+        let get: VrrFn = transmute(api.func(ID_GET_VRR_INFO)?);
+        let mut out = Vec::new();
+        for name in displays {
+            let mut raw = name.as_bytes().to_vec();
+            raw.push(0);
+            let mut id = 0u32;
+            if by_name(raw.as_ptr(), &mut id) != OK {
+                continue;
+            }
+            let mut info: VrrInfo = zeroed();
+            info.version = VRR_INFO_VERSION;
+            if get(id, &mut info) == OK {
+                out.push(info.flags);
+            }
+        }
+        Ok(out)
+    }
+}
+
+pub fn vrr(displays: &[String]) -> Result<bool, String> {
+    Ok(vrr_flags(displays)?.into_iter().any(|f| {
+        f & VRR_POSSIBLE != 0 && f & (VRR_ENABLED | VRR_REQUESTED | VRR_DISPLAY_IN_MODE) != 0
+    }))
 }

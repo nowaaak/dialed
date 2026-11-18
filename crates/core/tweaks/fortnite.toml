@@ -122,7 +122,7 @@ type = "ps"
 detect = '''
 $f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
 if (-not (Test-Path $f)) { 'Fortnite nicht gefunden' } else {
-  $hz = (Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+  $hz = [int]$env:DIALED_REFRESH
   $m = Select-String -Path $f -Pattern '^FrameRateLimit=([0-9.]+)' | Select-Object -First 1
   if ($m -and [math]::Round([double]$m.Matches[0].Groups[1].Value) -eq ($hz - 3)) { '1' } else { '0' }
 }
@@ -131,7 +131,7 @@ expect = "1"
 apply = '''
 $f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
 if (-not (Test-Path $f)) { throw 'GameUserSettings.ini nicht gefunden' }
-$hz = [int](Get-CimInstance Win32_VideoController | Measure-Object CurrentRefreshRate -Maximum).Maximum
+$hz = [int]$env:DIALED_REFRESH
 if ($hz -lt 50) { throw 'Bildwiederholrate nicht erkannt' }
 $text = [IO.File]::ReadAllText($f)
 $m = [regex]::Match($text, '(?m)^FrameRateLimit=([0-9.]+)')
@@ -147,3 +147,66 @@ $v = if (Test-Path $p) { ([IO.File]::ReadAllText($p)).Trim() } else { '0.000000'
 $text = [IO.File]::ReadAllText($f)
 [IO.File]::WriteAllText($f, [regex]::Replace($text, '(?m)^FrameRateLimit=[0-9.]+', "FrameRateLimit=$v"))
 '''
+
+[[tweak]]
+id = "fn.rendering_performance"
+name = "Rendermodus Performance"
+category = "fortnite"
+description = "Stellt Fortnite auf den Rendermodus „Performance“. Er senkt die Grafikqualität deutlich und entlastet CPU und GPU, Nanite und Lumen gibt es darin nicht."
+note = "Fortnite vorher schließen. Startoptionen im Epic Launcher wie -d3d11 oder -d3d12 haben Vorrang. Zurücksetzen stellt DirectX 12 ein."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "D3DRHIPreference"
+key = "PreferredRHI"
+apply = "dx12"
+default = "dx12"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "D3DRHIPreference"
+key = "PreferredFeatureLevel"
+apply = "es31"
+default = "sm6"
+
+[[tweak]]
+id = "fn.nanite_lumen_off"
+name = "Nanite und Lumen aus"
+category = "fortnite"
+description = "Schaltet unter DirectX 12 Nanite-Geometrie, globale Beleuchtung und Reflexionen auf die niedrigste Stufe. Lumen ist laut Epic nur bei hoher oder epischer Beleuchtung und Reflexion aktiv, beides kostet viel GPU-Leistung."
+note = "Fortnite vorher schließen. Im Rendermodus Performance ohne Wirkung, dort sind beide ohnehin aus."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "bUseNanite"
+apply = "False"
+default = "True"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "DesiredGlobalIlluminationQuality"
+apply = "0"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "/Script/FortniteGame.FortGameUserSettings"
+key = "DesiredReflectionQuality"
+apply = "0"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "ScalabilityGroups"
+key = "sg.GlobalIlluminationQuality"
+apply = "0"
+[[tweak.actions]]
+type = "ini"
+file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini'
+section = "ScalabilityGroups"
+key = "sg.ReflectionQuality"
+apply = "0"

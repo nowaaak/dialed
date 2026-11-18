@@ -8,6 +8,7 @@ const CATEGORIES = [
   { id: "gpu", label: "Grafik", icon: '<rect x="2" y="7" width="20" height="10" rx="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="12" r="2"/>' },
   { id: "storage", label: "Laufwerke", icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18M7 17h.01"/>' },
   { id: "network", label: "Netzwerk", icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>' },
+  { id: "input", label: "Eingabe & Audio", icon: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/>' },
   { id: "debloat", label: "Aufräumen", icon: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>' },
   { id: "fortnite", label: "Fortnite", section: "Spiele", icon: '<path d="M6 12h4M8 10v4M15 13h.01M18 11h.01"/><rect x="2" y="6" width="20" height="12" rx="4"/>' },
   { id: "gta", label: "GTA V", icon: '<path d="M5 17h14M6 17l1.5-6h9L18 17M8 11l1-3h6l1 3"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/>' },
@@ -17,10 +18,10 @@ const CATEGORIES = [
 ];
 const TWEAK_CATEGORIES = CATEGORIES.filter((c) => !c.page && c.id !== "all");
 
-const SAFE = ["kernel.global_timer_resolution", "bcd.remove_useplatformclock", "game.dvr_off", "input.mouse_accel_off", "power.fast_startup_off", "power.usb_suspend_off", "storage.trim", "storage.last_access_off", "debloat.telemetry", "debloat.telemetry_tasks", "debloat.consumer_features", "debloat.search_suggestions_off", "debloat.advertising_id_off", "debloat.startup_delay_off"];
+const SAFE = ["kernel.global_timer_resolution", "bcd.remove_useplatformclock", "game.dvr_off", "input.mouse_accel_off", "power.fast_startup_off", "power.usb_suspend_off", "storage.trim", "storage.last_access_off", "debloat.telemetry", "debloat.telemetry_tasks", "debloat.consumer_features", "debloat.search_suggestions_off", "debloat.advertising_id_off", "debloat.startup_delay_off", "input.accessibility_hotkeys_off", "audio.ducking_off"];
 const PRESETS = [
   { id: "safe", name: "Sicher", text: "Belegte Tweaks mit niedrigem Risiko: Timer, Eingabe, Telemetrie, Dateisystem. Passt für jedes System.", ids: SAFE },
-  { id: "competitive", name: "Competitive", text: "Alles aus „Sicher“, dazu Timer-Dienst, Dialed-Energieplan, MSI-Mode, Prioritäten und die Fortnite-Basis. Sicherheitsfunktionen wie HVCI bleiben unangetastet.", ids: [...SAFE, "timer.service", "prio.win32_2a", "power.dialed_plan", "power.pcie_aspm_off", "power.throttling_off", "gpu.msi_mode", "net.eee_off", "debloat.background_apps", "fn.cpu_priority", "fn.io_priority", "fn.ini_competitive"] },
+  { id: "competitive", name: "Competitive", text: "Alles aus „Sicher“, dazu Timer-Dienst, Dialed-Energieplan, MSI-Mode, Prioritäten und die Fortnite-Basis. Sicherheitsfunktionen wie HVCI bleiben unangetastet.", ids: [...SAFE, "timer.service", "input.device_power_off", "prio.win32_2a", "power.dialed_plan", "power.pcie_aspm_off", "power.throttling_off", "gpu.msi_mode", "net.eee_off", "debloat.background_apps", "fn.cpu_priority", "fn.io_priority", "fn.ini_competitive"] },
   { id: "notebook", name: "Notebook", text: "Alles aus „Sicher“, dazu weniger Hintergrundaktivität. Nichts, was Akkulaufzeit kostet.", ids: [...SAFE.filter((x) => x !== "power.usb_suspend_off"), "debloat.background_apps"] },
 ];
 const EVIDENCE = {
@@ -272,6 +273,7 @@ const GAMES = [
   { flag: "fortnite", label: "Fortnite", cat: "fortnite" },
   { flag: "gta_legacy", label: "GTA V Legacy", cat: "gta" },
   { flag: "gta_enhanced", label: "GTA V Enhanced", cat: "gta" },
+  { flag: "minecraft", label: "Minecraft", cat: "games" },
 ];
 
 function cpuName(hw) {
@@ -291,7 +293,8 @@ function systemInfo() {
     hw.gpus.map((g) => row("GPU", g)).join("") +
     row("RAM", ram) +
     hw.disks.map((d) => row("Laufwerk", d)).join("") +
-    row("Bildwiederholrate", hw.refresh ? `${hw.refresh} Hz` : "") +
+    (hw.displays || []).map((d) => row(d.primary ? "Hauptmonitor" : "Monitor", `${d.width}×${d.height}, ${d.current} Hz${d.current < d.max ? ` (möglich: ${d.max} Hz)` : ""}`)).join("") +
+    (hw.flags.includes("gpu.nvidia") ? row("G-SYNC", hw.vrr ? "aktiv" : "nicht aktiv") : "") +
     row("Windows", `${(hw.os || "Windows").replace("Microsoft ", "")}, Build ${hw.build}`);
   const games = GAMES.map((g) =>
     hw.flags.includes(g.flag)

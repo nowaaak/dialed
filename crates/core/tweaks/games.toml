@@ -52,3 +52,82 @@ expect = "1"
 type = "ps"
 detect = "if ((Get-Tpm).TpmPresent) { '1' } else { '0' }"
 expect = "1"
+
+[[tweak]]
+id = "mc.vsync_fps"
+name = "Minecraft: V-Sync aus und FPS-Limit"
+category = "games"
+description = "Schaltet V-Sync in allen Minecraft-Profilen ab und begrenzt die FPS knapp unter die Bildwiederholrate, in Zehnerschritten wie im Spiel. Gilt für das normale Minecraft und für Profile des NoRisk Clients."
+note = "Minecraft vorher schließen, das Spiel schreibt die options.txt beim Beenden neu."
+evidence = "A"
+risk = "low"
+requires = ["minecraft"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$files = @(Get-ChildItem -Path "$env:APPDATA\norisk\NoRiskClientV3\data\profiles\*\options.txt", "$env:APPDATA\.minecraft\options.txt" -ErrorAction SilentlyContinue)
+$want = [math]::Floor(([int]$env:DIALED_REFRESH - 3) / 10) * 10
+if ($files.Count -eq 0) { 'Minecraft nicht gefunden' } else {
+  $bad = @($files | Where-Object { $t = [IO.File]::ReadAllText($_.FullName); $t -notmatch '(?m)^enableVsync:false\r?$' -or $t -notmatch "(?m)^maxFps:$want\r?$" })
+  if ($bad.Count -eq 0) { '1' } else { '0' }
+}
+'''
+expect = "1"
+apply = '''
+$want = [math]::Floor(([int]$env:DIALED_REFRESH - 3) / 10) * 10
+if ($want -lt 30) { throw 'Bildwiederholrate nicht erkannt' }
+$files = @(Get-ChildItem -Path "$env:APPDATA\norisk\NoRiskClientV3\data\profiles\*\options.txt", "$env:APPDATA\.minecraft\options.txt" -ErrorAction SilentlyContinue)
+if ($files.Count -eq 0) { throw 'Keine options.txt gefunden, Minecraft einmal starten' }
+$prevFile = "$env:APPDATA\Dialed\mc-prev.json"
+$prev = @{}
+foreach ($f in $files) {
+  $t = [IO.File]::ReadAllText($f.FullName)
+  $prev[$f.FullName] = @{
+    vsync = [regex]::Match($t, '(?m)^enableVsync:(\S+)').Groups[1].Value
+    fps = [regex]::Match($t, '(?m)^maxFps:(\S+)').Groups[1].Value
+  }
+  foreach ($kv in @(@('enableVsync', 'false'), @('maxFps', "$want"))) {
+    if ($t -match "(?m)^$($kv[0]):") { $t = [regex]::Replace($t, "(?m)^$($kv[0]):[^\r\n]*", "$($kv[0]):$($kv[1])") }
+    else { $t = $t.TrimEnd() + "`n$($kv[0]):$($kv[1])`n" }
+  }
+  [IO.File]::WriteAllText($f.FullName, $t)
+}
+if (-not (Test-Path $prevFile)) {
+  New-Item -ItemType Directory -Path "$env:APPDATA\Dialed" -Force | Out-Null
+  $prev | ConvertTo-Json -Depth 3 | Set-Content -Path $prevFile -Encoding UTF8
+}
+'''
+revert = '''
+$prevFile = "$env:APPDATA\Dialed\mc-prev.json"
+if (-not (Test-Path $prevFile)) { throw 'Vorher-Werte nicht gefunden, V-Sync und FPS bitte im Spiel einstellen' }
+$prev = Get-Content -Path $prevFile -Raw | ConvertFrom-Json
+foreach ($e in $prev.PSObject.Properties) {
+  if (-not (Test-Path -LiteralPath $e.Name)) { continue }
+  $t = [IO.File]::ReadAllText($e.Name)
+  if ($e.Value.vsync) { $t = [regex]::Replace($t, '(?m)^enableVsync:[^\r\n]*', "enableVsync:$($e.Value.vsync)") }
+  if ($e.Value.fps) { $t = [regex]::Replace($t, '(?m)^maxFps:[^\r\n]*', "maxFps:$($e.Value.fps)") }
+  [IO.File]::WriteAllText($e.Name, $t)
+}
+Remove-Item $prevFile
+'''
+
+[[tweak]]
+id = "mc.memory_check"
+name = "Minecraft: Arbeitsspeicher sinnvoll"
+category = "games"
+kind = "check"
+description = "Der NoRisk Client gibt Minecraft zwischen 2 und 10 GB Arbeitsspeicher. Zu wenig führt zu Rucklern beim Laden, zu viel verlängert die Pausen der Speicherbereinigung."
+note = "Ändern im NoRisk Launcher unter Einstellungen. Für Vanilla und leichte Modpacks reichen 4 bis 6 GB."
+evidence = "B"
+risk = "low"
+requires = ["minecraft"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = "$env:APPDATA\norisk\NoRiskClientV3\launcher_config.json"
+if (-not (Test-Path $f)) { 'NoRisk Client nicht gefunden' } else {
+  $m = (Get-Content -LiteralPath $f -Raw | ConvertFrom-Json).global_memory_settings.max
+  if (-not $m) { 'nicht lesbar' } elseif ($m -lt 2048) { "nur $m MB" } elseif ($m -gt 10240) { "$m MB, eher zu viel" } else { '1' }
+}
+'''
+expect = "1"

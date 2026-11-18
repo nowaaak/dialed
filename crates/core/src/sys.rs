@@ -1,4 +1,5 @@
 //! Dünne Schicht zum Betriebssystem. Alles Windows-spezifische liegt hier.
+use crate::hardware::Display;
 use crate::model::RegKind;
 use std::path::PathBuf;
 
@@ -30,6 +31,8 @@ pub trait Sys: Send + Sync {
     fn nv_read(&self, app: Option<&str>, ids: &[u32]) -> Result<Vec<Option<u32>>, String>;
     /// NVIDIA-Treibereinstellung setzen (Some) oder auf Treiberstandard zurück (None).
     fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String>;
+    fn displays(&self) -> Vec<Display>;
+    fn nv_vrr(&self, displays: &[String]) -> Result<bool, String>;
 }
 
 pub struct WinSys;
@@ -188,6 +191,75 @@ mod win {
         fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
             crate::nv::write(app, id, value)
         }
+
+        fn displays(&self) -> Vec<Display> {
+            use windows::core::PCWSTR;
+            use windows::Win32::Graphics::Gdi::{
+                EnumDisplayDevicesW, EnumDisplaySettingsW, DEVMODEW, DISPLAY_DEVICEW,
+                DISPLAY_DEVICE_ATTACHED_TO_DESKTOP, DISPLAY_DEVICE_PRIMARY_DEVICE,
+                ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE,
+            };
+            let mut out = Vec::new();
+            let devmode = || DEVMODEW {
+                dmSize: std::mem::size_of::<DEVMODEW>() as u16,
+                ..Default::default()
+            };
+            unsafe {
+                for index in 0.. {
+                    let mut dev = DISPLAY_DEVICEW {
+                        cb: std::mem::size_of::<DISPLAY_DEVICEW>() as u32,
+                        ..Default::default()
+                    };
+                    if !EnumDisplayDevicesW(PCWSTR::null(), index, &mut dev, 0).as_bool() {
+                        break;
+                    }
+                    if (dev.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP).0 == 0 {
+                        continue;
+                    }
+                    let name = PCWSTR(dev.DeviceName.as_ptr());
+                    let mut current = devmode();
+                    if !EnumDisplaySettingsW(name, ENUM_CURRENT_SETTINGS, &mut current).as_bool() {
+                        continue;
+                    }
+                    let mut max = current.dmDisplayFrequency;
+                    for mode_index in 0.. {
+                        let mut mode = devmode();
+                        if !EnumDisplaySettingsW(
+                            name,
+                            ENUM_DISPLAY_SETTINGS_MODE(mode_index),
+                            &mut mode,
+                        )
+                        .as_bool()
+                        {
+                            break;
+                        }
+                        if mode.dmPelsWidth == current.dmPelsWidth
+                            && mode.dmPelsHeight == current.dmPelsHeight
+                        {
+                            max = max.max(mode.dmDisplayFrequency);
+                        }
+                    }
+                    let len = dev
+                        .DeviceName
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(dev.DeviceName.len());
+                    out.push(Display {
+                        name: String::from_utf16_lossy(&dev.DeviceName[..len]),
+                        width: current.dmPelsWidth,
+                        height: current.dmPelsHeight,
+                        current: current.dmDisplayFrequency,
+                        max,
+                        primary: (dev.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE).0 != 0,
+                    });
+                }
+            }
+            out
+        }
+
+        fn nv_vrr(&self, displays: &[String]) -> Result<bool, String> {
+            crate::nv::vrr(displays)
+        }
     }
 }
 
@@ -222,6 +294,12 @@ impl Sys for WinSys {
         Err("nur unter Windows".into())
     }
     fn nv_write(&self, _: Option<&str>, _: u32, _: Option<u32>) -> Result<(), String> {
+        Err("nur unter Windows".into())
+    }
+    fn displays(&self) -> Vec<Display> {
+        Vec::new()
+    }
+    fn nv_vrr(&self, _: &[String]) -> Result<bool, String> {
         Err("nur unter Windows".into())
     }
 }

@@ -180,7 +180,7 @@ default = 1
 [[tweak]]
 id = "input.mouse_accel_off"
 name = "Zeigerbeschleunigung aus"
-category = "windows"
+category = "input"
 description = "Deaktiviert „Zeigerbeschleunigung verbessern“. Spiele mit Raw Input sind davon nicht betroffen, Desktop und ältere Spiele schon."
 note = "Wirkt nach erneutem Anmelden."
 evidence = "A"
@@ -352,3 +352,121 @@ revert = '''
 Stop-ScheduledTask -TaskName 'Dialed Timer Resolution' -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName 'Dialed Timer Resolution' -Confirm:$false
 '''
+
+[[tweak]]
+id = "win.windowed_optimizations"
+name = "Optimierungen für Spiele im Fenstermodus"
+category = "windows"
+description = "DirectX-10- und DirectX-11-Spiele im Fenster oder randlosen Fenster nutzen das Flip-Modell statt des alten Kopiermodells. Laut Microsoft sinkt dadurch die Latenz deutlich, außerdem funktionieren dort VRR und Auto HDR."
+note = "Wirkt ab dem nächsten Spielstart. Macht ein einzelnes Spiel Probleme, lässt es sich in den Windows-Grafikeinstellungen pro App ausnehmen."
+evidence = "A"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$v = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue).DirectXUserGlobalSettings
+if ("$v" -match '(^|;)SwapEffectUpgradeEnable=1;') { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+$k = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
+if (-not (Test-Path -LiteralPath $k)) { New-Item -Path $k | Out-Null }
+$v = "$((Get-ItemProperty -LiteralPath $k -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue).DirectXUserGlobalSettings)"
+$v = [regex]::Replace($v, '(^|;)SwapEffectUpgradeEnable=\d+;', '$1')
+Set-ItemProperty -LiteralPath $k -Name DirectXUserGlobalSettings -Value ($v + 'SwapEffectUpgradeEnable=1;') -Type String
+'''
+revert = '''
+$k = 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences'
+$v = "$((Get-ItemProperty -LiteralPath $k -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue).DirectXUserGlobalSettings)"
+$v = [regex]::Replace($v, '(^|;)SwapEffectUpgradeEnable=\d+;', '$1')
+if ($v) { Set-ItemProperty -LiteralPath $k -Name DirectXUserGlobalSettings -Value $v -Type String }
+else { Remove-ItemProperty -LiteralPath $k -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue }
+'''
+
+[[tweak]]
+id = "wu.no_driver_updates"
+name = "Keine Treiber über Windows Update"
+category = "windows"
+description = "Windows Update ersetzt keine Treiber mehr, etwa einen frisch installierten NVIDIA-Treiber durch eine ältere Herstellerversion. Das setzt sonst Treiberprofile zurück und kann Ruckler verursachen."
+note = "Chipsatz-, WLAN- und andere Treiber musst du danach selbst aktuell halten. Windows zeigt in den Update-Einstellungen „Von deiner Organisation verwaltet“."
+evidence = "A"
+risk = "medium"
+[[tweak.actions]]
+type = "registry"
+hive = "HKLM"
+path = 'SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+name = "ExcludeWUDriversInQualityUpdate"
+kind = "dword"
+apply = 1
+
+[[tweak]]
+id = "defender.low_cpu_scan"
+name = "Defender-Scans mit niedriger CPU-Priorität"
+category = "windows"
+description = "Geplante Scans von Microsoft Defender laufen mit niedriger CPU-Priorität. Überschneidet sich ein Scan mit einem Spiel, nimmt er dem Spiel weniger Rechenzeit weg. Der Schutz bleibt gleich, Scans dauern nur länger."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$s = Get-MpComputerStatus -ErrorAction SilentlyContinue
+if (-not $s -or $s.AMRunningMode -ne 'Normal') { 'Microsoft Defender ist nicht der aktive Virenschutz' }
+elseif ((Get-MpPreference).EnableLowCpuPriority) { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+Set-MpPreference -EnableLowCpuPriority $true
+if (-not (Get-MpPreference).EnableLowCpuPriority) { throw 'Defender hat die Änderung nicht übernommen, eventuell blockiert der Manipulationsschutz' }
+'''
+revert = "Set-MpPreference -EnableLowCpuPriority $false"
+
+[[tweak]]
+id = "defender.idle_scan_check"
+name = "Defender-Planscans nur im Leerlauf"
+category = "windows"
+kind = "check"
+description = "Geplante Defender-Scans starten standardmäßig nur, wenn der PC nicht benutzt wird. Manche Tools oder Richtlinien schalten das ab, dann kann ein Scan mitten im Spiel beginnen."
+note = "Zurück zum Standard in einer Admin-PowerShell: Set-MpPreference -ScanOnlyIfIdleEnabled $true"
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if ((Get-MpPreference -ErrorAction SilentlyContinue).ScanOnlyIfIdleEnabled -eq $false) { '0' } else { '1' }"
+expect = "1"
+
+[[tweak]]
+id = "win.game_mode_check"
+name = "Spielmodus an"
+category = "windows"
+kind = "check"
+description = "Solange ein Spiel läuft, installiert Windows Update keine Treiber und fragt nicht nach Neustarts. Das ist der eigentliche Nutzen, mehr FPS bringt der Spielmodus kaum."
+note = "Einschalten unter Einstellungen → Spielen → Spielmodus."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$v = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\GameBar' -Name AutoGameModeEnabled -ErrorAction SilentlyContinue).AutoGameModeEnabled
+if ($null -eq $v -or $v -eq 1) { '1' } else { '0' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "win.fth_check"
+name = "Kein Spiel unter Fault Tolerant Heap"
+category = "windows"
+kind = "check"
+description = "Stürzt ein Programm mehrmals ab, legt Windows dauerhaft Speicherschutzmaßnahmen darüber (Fault Tolerant Heap). Das kann ein Spiel spürbar bremsen, auch wenn die Abstürze längst behoben sind."
+note = "Zurücksetzen löscht die Einträge aller Programme: in einer Admin-Eingabeaufforderung rundll32.exe fthsvc.dll,FthSysprepSpecialize ausführen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$games = 'FortniteClient-Win64-Shipping.exe', 'GTA5.exe', 'GTA5_Enhanced.exe', 'javaw.exe', 'cs2.exe', 'VALORANT-Win64-Shipping.exe', 'Among Us.exe', 'FiveM.exe'
+$names = @((Get-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\FTH\State' -ErrorAction SilentlyContinue).Property)
+$hit = @($names | ForEach-Object { Split-Path $_ -Leaf } | Where-Object { $games -contains $_ } | Select-Object -Unique)
+if ($hit.Count -eq 0) { '1' } else { 'betroffen: ' + ($hit -join ', ') }
+'''
+expect = "1"

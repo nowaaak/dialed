@@ -628,6 +628,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
+ "windows",
 ]
 
 [[package]]
@@ -637,6 +638,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml 0.8.23",
+ "windows",
  "winreg 0.52.0",
 ]
 

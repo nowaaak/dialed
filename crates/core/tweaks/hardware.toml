@@ -73,3 +73,20 @@ requires = ["x3d_dual_ccd"]
 type = "ps"
 detect = "\"$((Get-Service amd3dvcacheSvc).Status)\""
 expect = "Running"
+
+[[tweak]]
+id = "hw.whea_check"
+name = "Keine Hardwarefehler gemeldet"
+category = "hardware"
+kind = "check"
+description = "Windows hat in den letzten 14 Tagen keine korrigierten oder schweren Hardwarefehler protokolliert. Solche WHEA-Meldungen deuten oft auf zu straffes RAM- oder CPU-Tuning hin, etwa XMP oder Curve Optimizer."
+note = "Details in der Ereignisanzeige unter System, Quelle WHEA-Logger. Fehler im Arbeitsspeicher ohne ECC tauchen hier meist nicht auf, ein sauberes Ergebnis beweist also keine Stabilität."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = (Get-Date).AddDays(-14) } -ErrorAction SilentlyContinue).Count
+if ($n -eq 0) { '1' } else { "$n Meldungen in 14 Tagen" }
+'''
+expect = "1"

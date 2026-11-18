@@ -129,10 +129,96 @@ mod timer {
     }
 }
 
+#[cfg(windows)]
+mod audio {
+    use std::time::Duration;
+    use windows::core::Result;
+    use windows::Win32::Media::Audio::{
+        eConsole, eRender, IAudioClient3, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+    };
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
+    };
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn FreeConsole() -> i32;
+    }
+
+    pub fn hold() -> ! {
+        unsafe {
+            FreeConsole();
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        }
+        loop {
+            let _ = keep_small_buffer();
+            std::thread::sleep(Duration::from_secs(5));
+        }
+    }
+
+    fn device_id(device: &IMMDevice) -> Result<String> {
+        unsafe {
+            let raw = device.GetId()?;
+            let id = raw.to_string().unwrap_or_default();
+            CoTaskMemFree(Some(raw.0 as _));
+            Ok(id)
+        }
+    }
+
+    fn keep_small_buffer() -> Result<()> {
+        unsafe {
+            let enumerator: IMMDeviceEnumerator =
+                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+            let id = device_id(&device)?;
+            let client: IAudioClient3 = device.Activate(CLSCTX_ALL, None)?;
+            let format = client.GetMixFormat()?;
+            let (mut default, mut fundamental, mut min, mut max) = (0, 0, 0, 0);
+            let supported = client
+                .GetSharedModeEnginePeriod(
+                    format,
+                    &mut default,
+                    &mut fundamental,
+                    &mut min,
+                    &mut max,
+                )
+                .is_ok()
+                && min > 0
+                && min < default;
+            let started = supported
+                && client
+                    .InitializeSharedAudioStream(0, min, format, None)
+                    .and_then(|_| client.Start())
+                    .is_ok();
+            CoTaskMemFree(Some(format as _));
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let current = enumerator
+                    .GetDefaultAudioEndpoint(eRender, eConsole)
+                    .and_then(|d| device_id(&d));
+                if current.ok().as_deref() != Some(id.as_str()) {
+                    break;
+                }
+                if started && client.GetCurrentPadding().is_err() {
+                    break;
+                }
+            }
+            if started {
+                let _ = client.Stop();
+            }
+            Ok(())
+        }
+    }
+}
+
 fn main() {
     #[cfg(windows)]
     if std::env::args().any(|a| a == "--timer") {
         timer::hold();
+    }
+    #[cfg(windows)]
+    if std::env::args().any(|a| a == "--audio") {
+        audio::hold();
     }
     // PowerShell-Aktionen (z. B. der Timer-Dienst) brauchen den Pfad dieser Exe.
     if let Ok(exe) = std::env::current_exe() {

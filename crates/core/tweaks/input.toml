@@ -1,0 +1,217 @@
+[[tweak]]
+id = "input.accessibility_hotkeys_off"
+name = "Tastenkürzel der Bedienungshilfen aus"
+category = "input"
+description = "Fünfmal Shift, achtmal langes Shift und fünf Sekunden Num-Taste öffnen keine Abfrage für Einrastfunktion, Anschlagverzögerung und Statusanzeige mehr. Die Abfrage holt mitten im Spiel den Desktop nach vorn."
+note = "Wirkt nach der nächsten Anmeldung. Die Funktionen selbst bleiben in den Einstellungen unter Barrierefreiheit verfügbar."
+evidence = "A"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Accessibility\StickyKeys'
+name = "Flags"
+kind = "sz"
+apply = "506"
+default = "510"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Accessibility\Keyboard Response'
+name = "Flags"
+kind = "sz"
+apply = "122"
+default = "126"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Accessibility\ToggleKeys'
+name = "Flags"
+kind = "sz"
+apply = "58"
+default = "62"
+
+[[tweak]]
+id = "input.filterkeys_check"
+name = "Anschlagverzögerung aus"
+category = "input"
+kind = "check"
+description = "Ist die Anschlagverzögerung (FilterKeys) an, nimmt Windows Tastendrücke absichtlich erst nach einer Wartezeit an und ignoriert schnelle Wiederholungen."
+note = "Ausschalten unter Einstellungen → Barrierefreiheit → Tastatur → Anschlagverzögerung."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = (Get-ItemProperty -LiteralPath 'HKCU:\Control Panel\Accessibility\Keyboard Response').Flags
+if (([int]$f -band 1) -eq 0) { '1' } else { '0' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "input.keyboard_repeat"
+name = "Schnelle Tastenwiederholung"
+category = "input"
+description = "Eine gehaltene Taste wiederholt sich schon nach 250 statt 500 ms und so schnell, wie Windows es erlaubt."
+note = "Betrifft nur gehaltene Tasten, nicht die Verzögerung eines einzelnen Tastendrucks. Wirkt nach der nächsten Anmeldung."
+evidence = "A"
+risk = "low"
+reboot = true
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Keyboard'
+name = "KeyboardDelay"
+kind = "sz"
+apply = "0"
+default = "1"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Control Panel\Keyboard'
+name = "KeyboardSpeed"
+kind = "sz"
+apply = "31"
+default = "31"
+
+[[tweak]]
+id = "input.device_power_off"
+name = "Energiesparen für Eingabegeräte, USB und Netzwerk aus"
+category = "input"
+description = "Windows darf Maus, Tastatur, USB-Hubs, USB-Controller und die Netzwerkkarte nicht mehr zum Stromsparen abschalten. Verhindert Aussetzer und einen verzögerten ersten Tastendruck nach einer Pause."
+note = "Entspricht dem Häkchen „Computer kann das Gerät ausschalten“ im Geräte-Manager. Nach dem Umstecken eines Geräts kann Windows es wieder setzen, Dialed zeigt das dann als Abweichung."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$ids = @(Get-PnpDevice -PresentOnly | Where-Object { $_.Class -in 'HIDClass', 'USB', 'Keyboard', 'Mouse', 'Net' } | ForEach-Object InstanceId)
+$on = @(Get-CimInstance -Namespace root\wmi -ClassName MSPower_DeviceEnable | Where-Object { $_.Enable -and (($_.InstanceName -replace '_\d+$') -in $ids) })
+if ($on.Count -eq 0) { '1' } else { "$($on.Count) Geräte dürfen abgeschaltet werden" }
+'''
+expect = "1"
+apply = '''
+$ids = @(Get-PnpDevice -PresentOnly | Where-Object { $_.Class -in 'HIDClass', 'USB', 'Keyboard', 'Mouse', 'Net' } | ForEach-Object InstanceId)
+$all = @(Get-CimInstance -Namespace root\wmi -ClassName MSPower_DeviceEnable | Where-Object { ($_.InstanceName -replace '_\d+$') -in $ids })
+$prev = "$env:APPDATA\Dialed\device-power-prev.json"
+if (-not (Test-Path $prev)) {
+  New-Item -ItemType Directory -Path "$env:APPDATA\Dialed" -Force | Out-Null
+  ConvertTo-Json -InputObject @($all | Where-Object Enable | ForEach-Object InstanceName) | Set-Content -Path $prev -Encoding UTF8
+}
+foreach ($d in Get-WmiObject -Namespace root\wmi -Class MSPower_DeviceEnable | Where-Object { $_.Enable -and (($_.InstanceName -replace '_\d+$') -in $ids) }) { $d.Enable = $false; [void]$d.Put() }
+'''
+revert = '''
+$prev = "$env:APPDATA\Dialed\device-power-prev.json"
+if (-not (Test-Path $prev)) { throw 'Vorher-Zustand nicht gefunden, die Geräte bitte im Geräte-Manager einstellen' }
+$names = @(Get-Content -Path $prev -Raw | ConvertFrom-Json)
+foreach ($d in Get-WmiObject -Namespace root\wmi -Class MSPower_DeviceEnable | Where-Object { $_.InstanceName -in $names }) {
+  $d.Enable = $true; [void]$d.Put()
+}
+Remove-Item $prev
+'''
+
+[[tweak]]
+id = "input.background_mouse_throttle"
+name = "Maus-Drossel für Hintergrund-Apps aktiv"
+category = "input"
+kind = "check"
+description = "Windows 11 liefert Mausdaten an Apps im Hintergrund nur noch etwa 125-mal pro Sekunde. Das Spiel im Vordergrund bekommt weiter jede Abfrage der Maus, Hintergrund-Apps verbrauchen bei 4000- oder 8000-Hz-Mäusen aber deutlich weniger CPU."
+note = "Manche Tweak-Tools schalten die Drossel ab oder setzen RawMouseThrottleDuration herunter. Für das Spiel im Vordergrund bringt das nichts, es kostet nur Rechenzeit. Zurück zum Standard: die Werte RawMouseThrottle* unter HKCU\\Control Panel\\Mouse löschen."
+evidence = "B"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$m = Get-ItemProperty -LiteralPath 'HKCU:\Control Panel\Mouse'
+$off = ($null -ne $m.RawMouseThrottleEnabled -and [int]$m.RawMouseThrottleEnabled -eq 0)
+$short = ($null -ne $m.RawMouseThrottleDuration -and [int]$m.RawMouseThrottleDuration -lt 8)
+if ($off) { 'abgeschaltet' } elseif ($short) { "verkürzt auf $([int]$m.RawMouseThrottleDuration) ms" } else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "audio.ducking_off"
+name = "Automatisches Leiserstellen bei Anrufen aus"
+category = "input"
+description = "Windows senkt die Lautstärke aller anderen Programme um 80 %, sobald ein Programm als Kommunikation erkannt wird, etwa beim Voice-Chat. Danach bleibt das Spiel gleich laut."
+note = "Entspricht in der Systemsteuerung Sound → Kommunikation → „Nichts unternehmen“."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "registry"
+hive = "HKCU"
+path = 'Software\Microsoft\Multimedia\Audio'
+name = "UserDuckingPreference"
+kind = "dword"
+apply = 3
+
+[[tweak]]
+id = "audio.low_latency_service"
+name = "Audio-Latenz-Dienst"
+category = "input"
+description = "Startet bei der Anmeldung einen kleinen Hintergrundprozess von Dialed, der beim Standard-Wiedergabegerät den kleinsten Audiopuffer anfordert, den der Treiber erlaubt. Laut Microsoft schalten dann alle Programme auf diesem Gerät auf den kleineren Puffer um, Spiele eingeschlossen. Windows nutzt sonst 10 ms."
+note = "Wirkt nur, wenn der Treiber kleinere Puffer anbietet. Unter hoher CPU-Last sind Knackser möglich, dann ausschalten. Der Dienst erscheint als Dialed im Lautstärkemixer und kann den automatischen Standby verhindern."
+evidence = "A"
+risk = "medium"
+requires = ["desktop"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$t = Get-ScheduledTask -TaskName 'Dialed Audio Latency'
+if ($t -and $t.Actions[0].Execute -eq $env:DIALED_EXE) { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+$exe = $env:DIALED_EXE
+if (-not $exe -or -not (Test-Path $exe)) { throw 'Pfad zur Dialed.exe unbekannt' }
+$a = New-ScheduledTaskAction -Execute $exe -Argument '--audio'
+$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
+$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'Dialed Audio Latency' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null
+Start-ScheduledTask -TaskName 'Dialed Audio Latency'
+'''
+revert = '''
+Stop-ScheduledTask -TaskName 'Dialed Audio Latency' -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName 'Dialed Audio Latency' -Confirm:$false
+Get-CimInstance Win32_Process -Filter "Name = 'dialed.exe'" | Where-Object { $_.CommandLine -like '*--audio*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+'''
+
+[[tweak]]
+id = "input.usb_irq_affinity"
+name = "USB-Interrupts weg von CPU 0"
+category = "input"
+description = "Legt die Interrupts der USB-Controller fest auf den logischen Kern 4. Maus und Tastatur konkurrieren dort nicht mit den Treibern, die Windows standardmäßig auf CPU 0 bündelt, und nicht mit der GPU, falls „GPU-Interrupts weg von CPU 0“ aktiv ist."
+note = "Wirkung hängt stark vom System ab und sollte mit dem Benchmark geprüft werden. Reagieren Maus oder Tastatur nach dem Neustart nicht richtig, zurücksetzen."
+evidence = "C"
+risk = "medium"
+reboot = true
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$n = 0; $ok = $true
+foreach ($d in (Get-PnpDevice -Class USB -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $n++
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  if ((Get-ItemProperty $k -ErrorAction SilentlyContinue).DevicePolicy -ne 4) { $ok = $false }
+}
+if ($n -gt 0 -and $ok) { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+if ([Environment]::ProcessorCount -lt 6) { throw 'Braucht mindestens 6 logische Kerne' }
+foreach ($d in (Get-PnpDevice -Class USB -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  New-Item -Path $k -Force | Out-Null
+  Set-ItemProperty -Path $k -Name DevicePolicy -Value 4 -Type DWord
+  Set-ItemProperty -Path $k -Name AssignmentSetOverride -Value ([byte[]](0x10)) -Type Binary
+}
+'''
+revert = '''
+foreach ($d in (Get-PnpDevice -Class USB -PresentOnly | Where-Object { $_.InstanceId -like 'PCI\*' })) {
+  $k = "HKLM:\SYSTEM\CurrentControlSet\Enum\$($d.InstanceId)\Device Parameters\Interrupt Management\Affinity Policy"
+  Remove-ItemProperty -Path $k -Name DevicePolicy, AssignmentSetOverride -ErrorAction SilentlyContinue
+}
+'''

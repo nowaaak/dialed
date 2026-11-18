@@ -106,3 +106,55 @@ risk = "low"
 type = "ps"
 detect = "$t = Get-ScheduledTask -TaskName 'ScheduledDefrag'; if ($t -and \"$($t.State)\" -ne 'Disabled') { '1' } else { '0' }"
 expect = "1"
+
+[[tweak]]
+id = "storage.pagefile_check"
+name = "Auslagerungsdatei vorhanden"
+category = "storage"
+kind = "check"
+description = "Windows hat eine Auslagerungsdatei. Ohne sie stürzen Spiele bei Speicherspitzen ab oder ruckeln, auch mit viel RAM. Abschalten ist ein bekannter Mythos."
+note = "Wiederherstellen unter Systemeigenschaften → Erweitert → Leistung → Virtueller Arbeitsspeicher → automatisch verwalten."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = "if (@(Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue).Count -gt 0) { '1' } else { '0' }"
+expect = "1"
+
+[[tweak]]
+id = "storage.ssd_health_check"
+name = "Laufwerke gesund"
+category = "storage"
+kind = "check"
+description = "Alle Laufwerke melden einen gesunden Zustand, und keine SSD läuft mit einer bekannt fehlerhaften Firmware. Die Firmware 3B2QGXA7 der Samsung 980 PRO verschleißt die SSD in kurzer Zeit."
+note = "Firmware-Updates gibt es beim Hersteller, bei Samsung über Samsung Magician."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$bad = @{ 'Samsung SSD 980 PRO' = '3B2QGXA7' }
+$warn = @()
+foreach ($d in Get-PhysicalDisk) {
+  if ("$($d.HealthStatus)" -ne 'Healthy') { $warn += "$($d.FriendlyName): $($d.HealthStatus)" }
+  foreach ($k in $bad.Keys) { if ($d.FriendlyName -like "$k*" -and $d.FirmwareVersion -eq $bad[$k]) { $warn += "$($d.FriendlyName): Firmware $($d.FirmwareVersion) aktualisieren" } }
+}
+if ($warn.Count -eq 0) { '1' } else { $warn -join ', ' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "storage.free_space_check"
+name = "Genug freier Speicher"
+category = "storage"
+kind = "check"
+description = "Auf jedem Laufwerk sind mindestens 15 % frei. Bei SSDs schrumpft sonst der schnelle Zwischenspeicher, Spiele laden langsamer und Updates scheitern."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$low = @(Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter -and $_.Size -gt 20GB -and ($_.SizeRemaining / $_.Size) -lt 0.15 })
+if ($low.Count -eq 0) { '1' } else { ($low | ForEach-Object { '{0}: nur {1:N0} % frei' -f $_.DriveLetter, (100 * $_.SizeRemaining / $_.Size) }) -join ', ' }
+'''
+expect = "1"

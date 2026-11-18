@@ -86,3 +86,51 @@ type = "nvidia_drs"
 app = "GTA5.exe"
 setting = "0x10835002"
 apply = 185
+
+[[tweak]]
+id = "gta.enh_display_check"
+name = "Enhanced: Auflösung und Bildwiederholrate passend"
+category = "gta"
+kind = "check"
+description = "GTA V Enhanced läuft mit der Auflösung und der Bildwiederholrate deines Hauptmonitors. Nach Updates oder Abstürzen setzt das Spiel gern 1920×1080 bei 60 Hz."
+note = "Ändern im Spiel unter Einstellungen → Grafik."
+evidence = "A"
+risk = "low"
+requires = ["gta_enhanced"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTAV Enhanced\settings.xml'
+$v = ([xml](Get-Content -LiteralPath $f -Raw)).Settings.video
+$d = @($env:DIALED_DISPLAYS | ConvertFrom-Json | ForEach-Object { $_ }) | Where-Object { $_.primary } | Select-Object -First 1
+if (-not $d) { 'Hauptmonitor nicht erkannt'; return }
+$p = @()
+if ($d -and [int]$v.RefreshRate.value -lt $d.max - 1) { $p += "$($v.RefreshRate.value) statt $($d.max) Hz" }
+if ($d -and ([int]$v.ScreenWidth.value -ne $d.width -or [int]$v.ScreenHeight.value -ne $d.height)) { $p += "$($v.ScreenWidth.value)×$($v.ScreenHeight.value) statt $($d.width)×$($d.height)" }
+if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "gta.legacy_display_check"
+name = "Legacy: Auflösung und Bildwiederholrate passend"
+category = "gta"
+kind = "check"
+description = "GTA V Legacy läuft mit der Auflösung und der Bildwiederholrate deines Hauptmonitors."
+note = "Ändern im Spiel unter Einstellungen → Grafik."
+evidence = "A"
+risk = "low"
+requires = ["gta_legacy"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Rockstar Games\GTA V\settings.xml'
+$v = ([xml](Get-Content -LiteralPath $f -Raw)).Settings.video
+$d = @($env:DIALED_DISPLAYS | ConvertFrom-Json | ForEach-Object { $_ }) | Where-Object { $_.primary } | Select-Object -First 1
+if (-not $d) { 'Hauptmonitor nicht erkannt'; return }
+$p = @()
+if ($d -and [int]$v.RefreshRate.value -lt $d.max - 1) { $p += "$($v.RefreshRate.value) statt $($d.max) Hz" }
+if ($d -and ([int]$v.ScreenWidth.value -ne $d.width -or [int]$v.ScreenHeight.value -ne $d.height)) { $p += "$($v.ScreenWidth.value)×$($v.ScreenHeight.value) statt $($d.width)×$($d.height)" }
+if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
+'''
+expect = "1"
