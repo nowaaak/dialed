@@ -12,6 +12,7 @@ Fünf Recherchen zu Spielen, Windows 11, Messmethodik, Hardware und Audio. Alles
 - 5 Sekunden Vorlauf (`--delay 5`), damit der Wechsel ins Spiel nicht mitgemessen wird. Feste Session `DialedBench`.
 - **Sicherheit:** PresentMon wurde mit Adminrechten aus `%APPDATA%` und dem WinGet-Paketordner gestartet. In beide darf jedes Programm schreiben, das war ein Weg an der Benutzerkontensteuerung vorbei. Jetzt startet Dialed nur ein gültig von Intel signiertes PresentMon.
 - Unterschiede zwischen Einzelläufen werden nicht mehr grün oder rot gefärbt. Ein einzelner Lauf schwankt um einige Prozent.
+- **A/B-Vergleich:** Läufe als Variante A und B markieren. Dialed vergleicht Ø FPS, 1%-Low und, wenn vorhanden, 0,1%-Low über einen Welch-Test auf den Logarithmen der Laufwerte und zeigt die Änderung mit 95-%-Bereich. „Besser“ oder „schlechter“ erst, wenn der ganze Bereich jenseits von ±1 % liegt. Warnt bei verschiedenen Spielen, FPS-Limit, wechselndem Ausgabeweg und nur zwei Läufen je Variante.
 
 ### Neue Prüfungen
 | ID | Einordnung | Bemerkung |
@@ -58,7 +59,6 @@ Fünf Recherchen zu Spielen, Windows 11, Messmethodik, Hardware und Audio. Alles
 
 | Idee | Warum | Aufwand |
 |---|---|---|
-| A/B-Vergleich mehrerer Läufe mit Konfidenzintervall | Erst damit lässt sich sagen, ob ein Tweak wirkt. Statistik auf Laufebene (Welch-t), nie auf Frame-Ebene | M |
 | Geführter A/B-Test im Wechsel ABAB | Gleicht Temperatur und Shader-Cache aus | M bis L |
 | PresentMon fest mitliefern (MIT-Lizenz) | Gleiche Version, gleiche Spalten, kein WinGet nötig | S bis M |
 | Software-Latenz aus PresentMon (`MsAllInputToPhotonLatency`, `MsPCLatency`) | Reflex, FPS-Limit und G-SYNC wirken auf die Latenz, nicht auf die FPS | S bis M |

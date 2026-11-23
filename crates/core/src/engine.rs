@@ -3,6 +3,7 @@ use crate::bench::{self, BenchRun};
 use crate::hardware::{self, Display, Hardware, HW_SCRIPT};
 use crate::model::*;
 use crate::parse;
+use crate::stats::{self, BenchComparison};
 use crate::sys::Sys;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -939,6 +940,71 @@ impl<S: Sys> Engine<S> {
             .unwrap_or_default()
     }
 
+    pub fn bench_compare(&self, a: &[u64], b: &[u64]) -> Result<BenchComparison, String> {
+        if a.iter().any(|id| b.contains(id)) {
+            return Err("Ein Lauf kann nicht in beiden Varianten sein".into());
+        }
+        let history = self.bench_history();
+        let pick = |ids: &[u64]| -> Result<Vec<BenchRun>, String> {
+            ids.iter()
+                .map(|id| {
+                    history
+                        .iter()
+                        .find(|r| r.at == *id)
+                        .cloned()
+                        .ok_or_else(|| "Messung nicht gefunden".to_string())
+                })
+                .collect()
+        };
+        let (runs_a, runs_b) = (pick(a)?, pick(b)?);
+        if runs_a.len() < 2 || runs_b.len() < 2 {
+            return Err("Je Variante mindestens zwei Läufe, besser drei bis fünf".into());
+        }
+        let all: Vec<&BenchRun> = runs_a.iter().chain(&runs_b).collect();
+        let mut warnings = Vec::new();
+        if all.iter().any(|r| r.process != all[0].process) {
+            warnings.push("Die Läufe stammen aus verschiedenen Spielen.".to_string());
+        }
+        if runs_a.len() < 3 || runs_b.len() < 3 {
+            warnings.push("Mit nur zwei Läufen je Variante ist der Bereich sehr breit, drei bis fünf sind besser.".to_string());
+        }
+        if all.iter().any(|r| r.capped) {
+            warnings.push("In mindestens einem Lauf war ein FPS-Limit aktiv. Dann sagt Ø FPS wenig, aussagekräftig sind die Lows.".to_string());
+        }
+        let modes: std::collections::BTreeSet<&str> = all
+            .iter()
+            .filter_map(|r| r.present_mode.as_deref())
+            .collect();
+        if modes.len() > 1 {
+            warnings.push(
+                "Der Ausgabeweg unterscheidet sich zwischen den Läufen, etwa Vollbild und Fenster."
+                    .to_string(),
+            );
+        }
+        let values = |runs: &[BenchRun],
+                      f: &dyn Fn(&BenchRun) -> Option<f64>|
+         -> Option<Vec<f64>> { runs.iter().map(f).collect() };
+        let metrics: [(&str, &dyn Fn(&BenchRun) -> Option<f64>); 3] = [
+            ("Ø FPS", &|r| Some(r.avg_fps)),
+            ("1%-Low", &|r| Some(r.low1_avg_fps.unwrap_or(r.low1_fps))),
+            ("0,1%-Low", &|r| r.low01_avg_fps),
+        ];
+        let results = metrics
+            .iter()
+            .filter_map(|(name, f)| {
+                let va = values(&runs_a, *f)?;
+                let vb = values(&runs_b, *f)?;
+                stats::compare(name, &va, &vb)
+            })
+            .collect();
+        Ok(BenchComparison {
+            runs_a: runs_a.len(),
+            runs_b: runs_b.len(),
+            results,
+            warnings,
+        })
+    }
+
     /// Misst ein laufendes Spiel mit PresentMon und speichert das Ergebnis samt aktiver Tweaks.
     pub fn benchmark(&self, process: &str, seconds: u32) -> Result<BenchRun, String> {
         let name = process
@@ -1400,6 +1466,45 @@ mod tests {
             std::fs::read_to_string(enh.join("settings.xml")).unwrap(),
             xml
         );
+    }
+
+    #[test]
+    fn compares_benchmark_run_sets() {
+        let e = engine("cmp");
+        let run = |at: u64, avg: f64, low: f64| BenchRun {
+            at,
+            process: "game.exe".into(),
+            seconds: 60,
+            frames: 9000,
+            avg_fps: avg,
+            low1_fps: low,
+            low01_fps: low,
+            low1_avg_fps: Some(low),
+            present_mode: Some("Hardware: Independent Flip".into()),
+            ..Default::default()
+        };
+        let history = vec![
+            run(1, 200.0, 140.0),
+            run(2, 201.0, 141.0),
+            run(3, 199.0, 139.0),
+            run(4, 220.0, 150.0),
+            run(5, 221.0, 151.0),
+            run(6, 219.0, 149.0),
+        ];
+        std::fs::write(
+            e.sys.data_dir().join("bench.json"),
+            serde_json::to_string(&history).unwrap(),
+        )
+        .unwrap();
+        let c = e.bench_compare(&[1, 2, 3], &[4, 5, 6]).unwrap();
+        assert_eq!(c.runs_a, 3);
+        assert_eq!(c.results.len(), 2);
+        assert_eq!(c.results[0].verdict, "besser");
+        assert_eq!(c.results[0].change, 10.0);
+        assert!(c.warnings.is_empty());
+        assert!(e.bench_compare(&[1, 2], &[2, 3]).is_err());
+        assert!(e.bench_compare(&[1], &[4, 5]).is_err());
+        assert!(e.bench_compare(&[1, 99], &[4, 5]).is_err());
     }
 
     #[test]

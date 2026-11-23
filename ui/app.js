@@ -48,7 +48,7 @@ function tierOf(t) {
 }
 const tier = (id) => TIERS.find((x) => x.id === id);
 
-const state = { bench: [], benchBusy: false, tweaks: [], hardware: null, category: "all", filter: "all", query: "", open: new Set(), busy: new Set(), loading: true };
+const state = { bench: [], benchBusy: false, benchSel: {}, benchCompare: null, tweaks: [], hardware: null, category: "all", filter: "all", query: "", open: new Set(), busy: new Set(), loading: true };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -200,6 +200,32 @@ async function loadBench() {
   } catch (_) {}
 }
 
+async function compareBench() {
+  const ids = (v) => Object.keys(state.benchSel).filter((k) => state.benchSel[k] === v).map(Number);
+  try {
+    state.benchCompare = await invoke("bench_compare", { a: ids("A"), b: ids("B") });
+  } catch (e) {
+    state.benchCompare = null;
+    toast("Vergleich: " + e, true);
+  }
+  renderBench();
+}
+
+function compareCard() {
+  const count = (v) => Object.values(state.benchSel).filter((x) => x === v).length;
+  const a = count("A"), b = count("B");
+  if (!a && !b) return '<p class="hint">Für einen Vergleich Läufe mit A (vorher) und B (nachher) markieren, je Variante drei bis fünf.</p>';
+  const c = state.benchCompare;
+  const verdict = { besser: "ok", schlechter: "bad", unklar: "warn" };
+  const sign = (x) => (x > 0 ? "+" : "") + String(x).replace(".", ",");
+  const result = c
+    ? `<table class="bench compare"><thead><tr><th>Kennzahl</th><th class="num">A</th><th class="num">B</th><th class="num">Änderung</th><th class="num">95-%-Bereich</th><th>Ergebnis</th></tr></thead><tbody>${c.results
+        .map((r) => `<tr><td>${esc(r.metric)}</td><td class="num" title="Streuung ${r.cv_a} %">${r.a_mean}</td><td class="num" title="Streuung ${r.cv_b} %">${r.b_mean}</td><td class="num">${sign(r.change)} %</td><td class="num">${sign(r.low)} bis ${sign(r.high)} %</td><td><span class="badge ${verdict[r.verdict] || "out"}">${esc(r.verdict)}</span></td></tr>`)
+        .join("")}</tbody></table>${c.warnings.map((w) => `<p class="hint warn">${esc(w)}</p>`).join("")}<p class="hint">Änderung von B gegenüber A. „Besser“ heißt: Der ganze Bereich liegt über +1 %. Überschneidet er die Null, reicht die Messung nicht für eine Aussage, dann mehr Läufe machen.</p>`
+    : "";
+  return `<div class="abbar"><span>A: ${a} ${a === 1 ? "Lauf" : "Läufe"} · B: ${b} ${b === 1 ? "Lauf" : "Läufe"}</span><button type="button" class="btn primary" id="bench-compare" ${a < 2 || b < 2 ? "disabled" : ""}>Vergleichen</button><button type="button" class="btn outline" id="bench-clear">Auswahl leeren</button></div>${result}`;
+}
+
 async function runBench() {
   const process = $("bench-process").value.trim();
   const seconds = parseInt($("bench-seconds").value, 10) || 60;
@@ -235,7 +261,9 @@ function renderBench() {
     const low1 = r.low1_avg_fps ?? r.low1_fps;
     const low01 = r.low01_avg_fps ?? (r.low1_avg_fps == null ? r.low01_fps : null);
     const warn = r.swapchains > 1 ? ` title="${r.swapchains} Swapchains erkannt, ausgewertet wurde die mit der meisten Laufzeit"` : "";
-    return `<tr><td>${new Date(r.at * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}</td><td${warn}>${esc(r.process)}</td><td class="num">${r.avg_fps}${diff(r.avg_fps, prev && prev.avg_fps)}</td><td class="num">${low1}${diff(low1, prev && (prev.low1_avg_fps ?? prev.low1_fps))}</td><td class="num">${low01 ?? '<span class="muted" title="Zu wenige Frames für einen belastbaren Wert">–</span>'}</td><td class="num">${r.stutters ?? "–"}</td><td title="${esc(r.present_mode || "")}${r.present_share != null ? ` (${Math.round(r.present_share * 100)} %)` : ""}">${esc(shortMode(r.present_mode))}</td><td>${limit(r)}</td><td title="${esc(names)}">${r.active.length} aktiv</td></tr>`;
+    const sel = state.benchSel[r.at];
+    const ab = ["A", "B"].map((v) => `<button type="button" class="abbtn" data-ab="${v}" data-at="${r.at}" aria-pressed="${sel === v}" title="Lauf zu Variante ${v}">${v}</button>`).join("");
+    return `<tr><td class="ab">${ab}</td><td>${new Date(r.at * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}</td><td${warn}>${esc(r.process)}</td><td class="num">${r.avg_fps}${diff(r.avg_fps, prev && prev.avg_fps)}</td><td class="num">${low1}${diff(low1, prev && (prev.low1_avg_fps ?? prev.low1_fps))}</td><td class="num">${low01 ?? '<span class="muted" title="Zu wenige Frames für einen belastbaren Wert">–</span>'}</td><td class="num">${r.stutters ?? "–"}</td><td title="${esc(r.present_mode || "")}${r.present_share != null ? ` (${Math.round(r.present_share * 100)} %)` : ""}">${esc(shortMode(r.present_mode))}</td><td>${limit(r)}</td><td title="${esc(names)}">${r.active.length} aktiv</td></tr>`;
   }).join("");
   $("list").innerHTML = `
     <article class="card benchform">
@@ -250,7 +278,7 @@ function renderBench() {
         <p class="hint">PresentMon einmalig installieren: <code>winget install --id Intel.PresentMon.Console -e</code>. Dialed startet nur ein gültig von Intel signiertes PresentMon.</p>
       </div></div>
     </article>
-    ${rows ? `<article class="card"><div class="details shown"><table class="bench"><thead><tr><th>Wann</th><th>Prozess</th><th class="num">Ø FPS</th><th class="num" title="Durchschnitt der langsamsten 1 % aller Frames">1%-Low</th><th class="num" title="Durchschnitt der langsamsten 0,1 %, erst ab 10 000 Frames">0,1%-Low</th><th class="num" title="Frames, die mehr als 2,5-mal so lange dauern wie der Durchschnitt">Ruckler</th><th title="Ausgabeweg laut PresentMon, Independent Flip ist der schnellste">Ausgabe</th><th title="GPU: Grafikkarte limitiert, CPU-Tweaks ändern die FPS kaum. FPS-Limit: Ø FPS ist kein Vergleichswert.">Limit</th><th>Tweaks</th></tr></thead><tbody>${rows}</tbody></table></div></article>` : '<div class="empty">Noch keine Messungen.</div>'}`;
+    ${rows ? `<article class="card"><div class="details shown">${compareCard()}<table class="bench"><thead><tr><th title="Variante für den Vergleich">A/B</th><th>Wann</th><th>Prozess</th><th class="num">Ø FPS</th><th class="num" title="Durchschnitt der langsamsten 1 % aller Frames">1%-Low</th><th class="num" title="Durchschnitt der langsamsten 0,1 %, erst ab 10 000 Frames">0,1%-Low</th><th class="num" title="Frames, die mehr als 2,5-mal so lange dauern wie der Durchschnitt">Ruckler</th><th title="Ausgabeweg laut PresentMon, Independent Flip ist der schnellste">Ausgabe</th><th title="GPU: Grafikkarte limitiert, CPU-Tweaks ändern die FPS kaum. FPS-Limit: Ø FPS ist kein Vergleichswert.">Limit</th><th>Tweaks</th></tr></thead><tbody>${rows}</tbody></table></div></article>` : '<div class="empty">Noch keine Messungen.</div>'}`;
 }
 
 // ---------- Darstellung ----------
@@ -467,6 +495,19 @@ $("list").addEventListener("click", (e) => {
 });
 $("list").addEventListener("click", (e) => {
   if (e.target.id === "bench-run") return void runBench();
+  if (e.target.id === "bench-compare") return void compareBench();
+  if (e.target.id === "bench-clear") {
+    state.benchSel = {};
+    state.benchCompare = null;
+    return void renderBench();
+  }
+  const ab = e.target.closest("[data-ab]");
+  if (ab) {
+    const at = ab.dataset.at;
+    state.benchSel[at] === ab.dataset.ab ? delete state.benchSel[at] : (state.benchSel[at] = ab.dataset.ab);
+    state.benchCompare = null;
+    return void renderBench();
+  }
   const tile = e.target.closest(".tile");
   if (tile) return void openCategory(tile.dataset.cat);
   const game = e.target.closest("[data-goto]");
@@ -546,6 +587,7 @@ async function mockInvoke(cmd, args) {
   await new Promise((r) => setTimeout(r, 350));
   if (!mockData) mockData = await (await fetch("mock.json")).json();
   if (cmd === "scan") return mockData;
+  if (cmd === "bench_compare") return { runs_a: args.a.length, runs_b: args.b.length, results: [{ metric: "Ø FPS", a_mean: 235.1, b_mean: 240.4, change: 2.3, low: -0.8, high: 5.4, verdict: "unklar", cv_a: 1.2, cv_b: 1.5 }, { metric: "1%-Low", a_mean: 148.3, b_mean: 162.9, change: 9.8, low: 4.1, high: 15.8, verdict: "besser", cv_a: 2.1, cv_b: 2.4 }], warnings: ["Mit nur zwei Läufen je Variante ist der Bereich sehr breit, drei bis fünf sind besser."] };
   if (cmd === "bench_history") return [{ at: 1794000000, process: "FortniteClient-Win64-Shipping.exe", seconds: 60, frames: 14100, avg_fps: 235.1, low1_fps: 148.3, low01_fps: 96.2, active: ["game.dvr_off"] }, { at: 1794003600, process: "FortniteClient-Win64-Shipping.exe", seconds: 60, frames: 14400, avg_fps: 240.4, low1_fps: 162.9, low01_fps: 110.5, active: ["game.dvr_off", "prio.win32_2a", "kernel.global_timer_resolution"] }];
   if (cmd === "apply" || cmd === "revert") {
     const t = mockData.tweaks.find((x) => x.id === args.id);

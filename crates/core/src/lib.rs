@@ -7,9 +7,11 @@ pub mod model;
 #[cfg(windows)]
 mod nv;
 pub mod parse;
+pub mod stats;
 pub mod sys;
 
 pub use bench::BenchRun;
 pub use engine::{Engine, ScanResult};
 pub use model::{Tweak, TweakView};
+pub use stats::BenchComparison;
 pub use sys::{Sys, WinSys};

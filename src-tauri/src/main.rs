@@ -1,7 +1,7 @@
 // Kein Konsolenfenster im Release-Build
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use dialed_core::{BenchRun, Engine, ScanResult, TweakView, WinSys};
+use dialed_core::{BenchComparison, BenchRun, Engine, ScanResult, TweakView, WinSys};
 use serde::Serialize;
 use tauri::State;
 use tauri_plugin_updater::UpdaterExt;
@@ -45,6 +45,15 @@ async fn benchmark(
 #[tauri::command]
 async fn bench_history(engine: State<'_, Eng>) -> Result<Vec<BenchRun>, String> {
     Ok(engine.bench_history())
+}
+
+#[tauri::command]
+async fn bench_compare(
+    engine: State<'_, Eng>,
+    a: Vec<u64>,
+    b: Vec<u64>,
+) -> Result<BenchComparison, String> {
+    engine.bench_compare(&a, &b)
 }
 
 #[derive(Serialize)]
@@ -236,7 +245,8 @@ fn main() {
             check_update,
             install_update,
             benchmark,
-            bench_history
+            bench_history,
+            bench_compare
         ])
         .run(tauri::generate_context!())
         .expect("Dialed konnte nicht gestartet werden");

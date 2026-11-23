@@ -210,6 +210,14 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11.5px; pad
 .details.shown { display: block; padding-top: 0.5rem; }
 table.bench { margin-top: 0; font-size: 13px; }
 table.bench td, table.bench th { padding: 0.5rem 0.75rem 0.5rem 0; }
+td.ab { white-space: nowrap; }
+.abbtn { min-width: 1.75rem; height: 1.5rem; margin-right: 0.25rem; border-radius: calc(var(--radius) * 0.6); border: 1px solid var(--input); font-size: 12px; font-weight: 600; color: var(--muted-foreground); transition: background-color 0.15s, color 0.15s; }
+.abbtn:hover { background: var(--accent); color: var(--foreground); }
+.abbtn[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.abbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.75rem; font-size: 13px; font-variant-numeric: tabular-nums; }
+.abbar span { margin-right: auto; color: var(--muted-foreground); }
+table.bench.compare { margin-bottom: 0.5rem; }
+.hint.warn { color: var(--warn); }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .up { color: var(--ok); font-size: 12px; }
 .down { color: var(--destructive); font-size: 12px; }
