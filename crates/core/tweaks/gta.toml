@@ -134,3 +134,27 @@ if ($d -and ([int]$v.ScreenWidth.value -ne $d.width -or [int]$v.ScreenHeight.val
 if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
 '''
 expect = "1"
+
+[[tweak]]
+id = "fivem.display_check"
+name = "FiveM: Auflösung und Bildwiederholrate passend"
+category = "gta"
+kind = "check"
+description = "FiveM läuft mit der Auflösung und der Bildwiederholrate deines Hauptmonitors. FiveM speichert seine Grafikeinstellungen getrennt von GTA V."
+note = "Ändern in FiveM unter Einstellungen → Grafik."
+evidence = "B"
+risk = "low"
+requires = ["fivem"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = "$env:APPDATA\CitizenFX\gta5_settings.xml"
+$v = ([xml](Get-Content -LiteralPath $f -Raw)).Settings.video
+$d = @($env:DIALED_DISPLAYS | ConvertFrom-Json | ForEach-Object { $_ }) | Where-Object { $_.primary } | Select-Object -First 1
+if (-not $d) { 'Hauptmonitor nicht erkannt'; return }
+$p = @()
+if ([int]$v.RefreshRate.value -lt $d.max - 1) { $p += "$($v.RefreshRate.value) statt $($d.max) Hz" }
+if ([int]$v.ScreenWidth.value -ne $d.width -or [int]$v.ScreenHeight.value -ne $d.height) { $p += "$($v.ScreenWidth.value)×$($v.ScreenHeight.value) statt $($d.width)×$($d.height)" }
+if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
+'''
+expect = "1"

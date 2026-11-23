@@ -29,6 +29,12 @@ const GAME_FLAGS: &[(&str, &str)] = &[
         r"%APPDATA%\norisk\NoRiskClientV3\data\profiles",
     ),
     ("minecraft", r"%APPDATA%\.minecraft\options.txt"),
+    ("r6", r"%DOCUMENTS%\My Games\Rainbow Six - Siege"),
+    (
+        "overwatch",
+        r"%DOCUMENTS%\Overwatch\Settings\Settings_v0.ini",
+    ),
+    ("fivem", r"%APPDATA%\CitizenFX\gta5_settings.xml"),
 ];
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -170,10 +176,13 @@ fn ps_context(hw: &Hardware) -> String {
         .unwrap_or_default()
         .replace('\'', "''");
     format!(
-        "$env:DIALED_REFRESH = '{}'\n$env:DIALED_DISPLAYS = '{}'\n$env:DIALED_VRR = '{}'\n",
+        "$env:DIALED_REFRESH = '{}'\n$env:DIALED_DISPLAYS = '{}'\n$env:DIALED_VRR = '{}'\n$env:DIALED_AUDIO = '{}'\n",
         hw.refresh,
         displays,
-        u8::from(hw.vrr)
+        u8::from(hw.vrr),
+        serde_json::to_string(&hw.audio)
+            .unwrap_or_default()
+            .replace('\'', "''")
     )
 }
 
@@ -608,6 +617,7 @@ impl<S: Sys> Engine<S> {
         let context = Hardware {
             refresh: main_refresh(&displays),
             vrr: self.sys.nv_vrr(&names).unwrap_or(false),
+            audio: self.sys.audio(),
             displays,
             ..Default::default()
         };
@@ -638,6 +648,7 @@ impl<S: Sys> Engine<S> {
         hw.refresh = context.refresh;
         hw.vrr = context.vrr;
         hw.displays = context.displays;
+        hw.audio = context.audio;
         if hw.vrr {
             hw.flags.insert("vrr".into());
         }
@@ -952,20 +963,25 @@ impl<S: Sys> Engine<S> {
             .map(|t| t.id)
             .collect();
         let script = format!(
-            r#"$exe = @(Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Intel.PresentMon.Console*" -Recurse -Filter 'PresentMon*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName) + @("$env:APPDATA\Dialed\PresentMon.exe") | Where-Object {{ $_ -and (Test-Path $_) }} | Select-Object -First 1
-if (-not $exe) {{ throw 'PresentMon fehlt. Installieren mit: winget install --id Intel.PresentMon.Console -e' }}
+            r#"$candidates = @(Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Intel.PresentMon.Console*" -Recurse -Filter 'PresentMon*.exe' -ErrorAction SilentlyContinue | ForEach-Object FullName) + @("$env:APPDATA\Dialed\PresentMon.exe")
+$exe = $candidates | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Where-Object {{
+  $sig = Get-AuthenticodeSignature -LiteralPath $_
+  $sig.Status -eq 'Valid' -and $sig.SignerCertificate.Subject -match 'O=Intel Corporation'
+}} | Select-Object -First 1
+if (-not $exe) {{ throw 'Kein gültig von Intel signiertes PresentMon gefunden. Installieren mit: winget install --id Intel.PresentMon.Console -e' }}
 if (-not (Get-Process -Name '{name}' -ErrorAction SilentlyContinue)) {{ throw '{name}.exe läuft nicht. Spiel starten und erneut messen.' }}
 $out = "$env:APPDATA\Dialed\bench-last.csv"
 if (Test-Path $out) {{ Remove-Item $out -Force }}
-& $exe --process_name '{name}.exe' --output_file $out --timed {seconds} --terminate_after_timed --no_console_stats --stop_existing_session | Out-Null
+& $exe --process_name '{name}.exe' --output_file $out --delay 5 --timed {seconds} --terminate_after_timed --no_console_stats --stop_existing_session --session_name DialedBench | Out-Null
 if (-not (Test-Path $out)) {{ throw 'PresentMon hat keine Daten geschrieben' }}"#
         );
         self.run_ps(&script)?;
         let csv = std::fs::read(self.sys.data_dir().join("bench-last.csv"))
             .map_err(|e| format!("Messdatei: {e}"))?;
-        let frames = bench::frametimes(&String::from_utf8_lossy(&csv))?;
-        let (avg_fps, low1_fps, low01_fps) = bench::stats(&frames)
+        let capture = bench::parse(&String::from_utf8_lossy(&csv))?;
+        let stats = bench::stats(&capture.frametimes)
             .ok_or("zu wenige Frames gemessen, läuft das Spiel im Vordergrund?")?;
+        let refresh = self.hw.lock().unwrap().refresh;
         let run = BenchRun {
             at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -973,10 +989,18 @@ if (-not (Test-Path $out)) {{ throw 'PresentMon hat keine Daten geschrieben' }}"
                 .unwrap_or(0),
             process: format!("{name}.exe"),
             seconds,
-            frames: frames.len(),
-            avg_fps,
-            low1_fps,
-            low01_fps,
+            frames: capture.frametimes.len(),
+            avg_fps: stats.avg,
+            low1_fps: stats.p1,
+            low01_fps: stats.p01,
+            low1_avg_fps: Some(stats.low1_avg),
+            low01_avg_fps: stats.low01_avg,
+            stutters: Some(stats.stutters),
+            capped: bench::looks_capped(stats.median_fps, refresh),
+            present_mode: capture.present_mode.as_ref().map(|(m, _)| m.clone()),
+            present_share: capture.present_mode.map(|(_, s)| s),
+            gpu_busy: capture.gpu_busy,
+            swapchains: Some(capture.swapchains),
             active,
         };
         let mut history = self.bench_history();
@@ -1075,6 +1099,16 @@ mod tests {
         }
         fn nv_vrr(&self, _: &[String]) -> Result<bool, String> {
             Ok(self.vrr)
+        }
+        fn audio(&self) -> Option<crate::hardware::AudioOut> {
+            Some(crate::hardware::AudioOut {
+                name: "Kopfhörer (Headset)".into(),
+                bus: "USB".into(),
+                default_ms: 10.0,
+                min_ms: 2.67,
+                current_ms: 10.0,
+                comm_name: String::new(),
+            })
         }
         fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {
             let mut nv = self.nv.lock().unwrap();

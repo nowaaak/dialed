@@ -39,6 +39,16 @@ pub struct Display {
     pub primary: bool,
 }
 
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct AudioOut {
+    pub name: String,
+    pub bus: String,
+    pub default_ms: f64,
+    pub min_ms: f64,
+    pub current_ms: f64,
+    pub comm_name: String,
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Hardware {
     pub cpu: String,
@@ -54,6 +64,7 @@ pub struct Hardware {
     pub refresh: u64,
     pub displays: Vec<Display>,
     pub vrr: bool,
+    pub audio: Option<AudioOut>,
     pub laptop: bool,
     pub disks: Vec<String>,
     pub flags: BTreeSet<String>,

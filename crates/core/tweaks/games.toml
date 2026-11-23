@@ -131,3 +131,77 @@ if (-not (Test-Path $f)) { 'NoRisk Client nicht gefunden' } else {
 }
 '''
 expect = "1"
+
+[[tweak]]
+id = "r6.fps_cap"
+name = "Rainbow Six Siege: FPS-Limit 3 unter der Bildwiederholrate"
+category = "games"
+description = "Setzt FPSLimit in der GameSettings.ini aller Ubisoft-Konten auf die Bildwiederholrate minus 3. Ubisoft dokumentiert den Wert selbst, er senkt laut Ubisoft auch die CPU-Last. Mit G-SYNC oder FreeSync bleibt das Spiel so im VRR-Bereich."
+note = "Rainbow Six vorher schließen."
+evidence = "A"
+risk = "low"
+requires = ["r6"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$root = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Rainbow Six - Siege'
+$files = @(Get-ChildItem -LiteralPath $root -Filter GameSettings.ini -Recurse -Depth 1 -ErrorAction SilentlyContinue)
+$want = [int]$env:DIALED_REFRESH - 3
+if ($files.Count -eq 0) { 'GameSettings.ini nicht gefunden' }
+elseif (@($files | Where-Object { [IO.File]::ReadAllText($_.FullName) -notmatch "(?m)^FPSLimit=$want\r?$" }).Count -eq 0) { '1' } else { '0' }
+'''
+expect = "1"
+apply = '''
+$want = [int]$env:DIALED_REFRESH - 3
+if ($want -lt 30) { throw 'Bildwiederholrate nicht erkannt' }
+$root = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Rainbow Six - Siege'
+$files = @(Get-ChildItem -LiteralPath $root -Filter GameSettings.ini -Recurse -Depth 1 -ErrorAction SilentlyContinue)
+if ($files.Count -eq 0) { throw 'GameSettings.ini nicht gefunden, Rainbow Six einmal starten' }
+$prevFile = "$env:APPDATA\Dialed\r6-prev.json"
+$prev = @{}
+foreach ($f in $files) {
+  $t = [IO.File]::ReadAllText($f.FullName)
+  $m = [regex]::Match($t, '(?m)^FPSLimit=([^\r\n]*)')
+  if (-not $m.Success) { throw "FPSLimit steht nicht in $($f.FullName)" }
+  $prev[$f.FullName] = $m.Groups[1].Value
+  [IO.File]::WriteAllText($f.FullName, [regex]::Replace($t, '(?m)^FPSLimit=[^\r\n]*', "FPSLimit=$want"))
+}
+if (-not (Test-Path $prevFile)) {
+  New-Item -ItemType Directory -Path "$env:APPDATA\Dialed" -Force | Out-Null
+  $prev | ConvertTo-Json | Set-Content -Path $prevFile -Encoding UTF8
+}
+'''
+revert = '''
+$prevFile = "$env:APPDATA\Dialed\r6-prev.json"
+if (-not (Test-Path $prevFile)) { throw 'Vorher-Werte nicht gefunden, das Limit bitte im Spiel einstellen' }
+$prev = Get-Content -Path $prevFile -Raw | ConvertFrom-Json
+foreach ($e in $prev.PSObject.Properties) {
+  if (-not (Test-Path -LiteralPath $e.Name)) { continue }
+  $t = [IO.File]::ReadAllText($e.Name)
+  [IO.File]::WriteAllText($e.Name, [regex]::Replace($t, '(?m)^FPSLimit=[^\r\n]*', "FPSLimit=$($e.Value)"))
+}
+Remove-Item $prevFile
+'''
+
+[[tweak]]
+id = "ow.display_check"
+name = "Overwatch 2: Bildwiederholrate passend"
+category = "games"
+kind = "check"
+description = "Overwatch 2 läuft im Vollbild mit der höchsten Bildwiederholrate deines Hauptmonitors. Nach Updates fällt der Wert gern auf 60 Hz zurück und begrenzt dann auch die FPS."
+note = "Ändern im Spiel unter Optionen → Video → Bildwiederholrate."
+evidence = "B"
+risk = "low"
+requires = ["overwatch"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Overwatch\Settings\Settings_v0.ini'
+$m = Select-String -LiteralPath $f -Pattern '^\s*FullScreenRefresh\s*=\s*"?([\d.]+)' -ErrorAction SilentlyContinue | Select-Object -First 1
+$d = @($env:DIALED_DISPLAYS | ConvertFrom-Json | ForEach-Object { $_ }) | Where-Object { $_.primary } | Select-Object -First 1
+if (-not $m -or -not $d) { 'nicht lesbar' } else {
+  $hz = [math]::Round([double]$m.Matches[0].Groups[1].Value)
+  if ($hz -ge $d.max - 1) { '1' } else { "$hz statt $($d.max) Hz" }
+}
+'''
+expect = "1"

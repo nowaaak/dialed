@@ -215,3 +215,54 @@ foreach ($d in (Get-PnpDevice -Class USB -PresentOnly | Where-Object { $_.Instan
   Remove-ItemProperty -Path $k -Name DevicePolicy, AssignmentSetOverride -ErrorAction SilentlyContinue
 }
 '''
+
+[[tweak]]
+id = "audio.bluetooth_output_check"
+name = "Spielton nicht über Bluetooth"
+category = "input"
+kind = "check"
+description = "Das Standard-Wiedergabegerät ist nicht per Bluetooth verbunden. Bluetooth-Kopfhörer bringen je nach Modell 100 bis 300 ms Verzögerung mit, ein Funk-Dongle oder Kabel liegt bei wenigen Millisekunden."
+note = "Bei Headsets mit 2,4-GHz-Dongle den Dongle nutzen und ihn in den Sound-Einstellungen als Standardgerät wählen."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$a = $env:DIALED_AUDIO | ConvertFrom-Json
+if (-not $a) { 'kein Wiedergabegerät erkannt' } elseif ("$($a.bus)" -like 'BTH*') { "$($a.name) läuft über Bluetooth" } else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "audio.comm_device_check"
+name = "Sprachchat auf demselben Gerät"
+category = "input"
+kind = "check"
+description = "Das Standardgerät für Kommunikation ist dasselbe wie für Spiele. Sonst geben Programme wie Discord, die dem Kommunikationsgerät folgen, den Sprachchat auf einem anderen Gerät aus, etwa über die Lautsprecher des Monitors."
+note = "Ändern in der Systemsteuerung unter Sound → Wiedergabe → Rechtsklick auf das Headset → „Als Standardkommunikationsgerät festlegen“."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$a = $env:DIALED_AUDIO | ConvertFrom-Json
+if (-not $a -or -not $a.comm_name) { '1' } else { "Kommunikation läuft über $($a.comm_name)" }
+'''
+expect = "1"
+
+[[tweak]]
+id = "audio.small_buffer_check"
+name = "Kleiner Audiopuffer möglich"
+category = "input"
+kind = "check"
+description = "Der Treiber des Standard-Wiedergabegeräts erlaubt einen kleineren Puffer als die üblichen 10 ms. Nur dann wirkt der Audio-Latenz-Dienst."
+note = "Bluetooth- und HDMI-Ausgänge erlauben meist nur 10 ms. Virtuelle Geräte wie SteelSeries Sonar oder USB-Headsets mit dem Windows-Treiber oft weniger."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$a = $env:DIALED_AUDIO | ConvertFrom-Json
+if (-not $a -or -not $a.default_ms) { 'nicht lesbar' } elseif ($a.min_ms -lt $a.default_ms) { '1' } else { "$($a.name) erlaubt nur $($a.default_ms) ms" }
+'''
+expect = "1"

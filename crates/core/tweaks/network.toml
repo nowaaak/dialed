@@ -132,3 +132,21 @@ $off = @($p | Where-Object { "$($_.RegistryValue)" -ne '3' })
 if ($p.Count -eq 0) { 'nicht vorhanden' } elseif ($off.Count -eq 0) { '1' } else { 'aus: ' + (($off | ForEach-Object { $_.DisplayName }) -join ', ') }
 '''
 expect = "1"
+
+[[tweak]]
+id = "net.link_speed_check"
+name = "Kabelverbindung mit voller Geschwindigkeit"
+category = "network"
+kind = "check"
+description = "Die kabelgebundene Netzwerkkarte ist mindestens mit 1 Gbit/s verbunden. Steht sie auf 100 Mbit/s, ist meist das Kabel, ein Stecker oder der Router-Port schuld."
+note = "Anderes Kabel (Cat 5e oder besser) und einen anderen Port am Router probieren."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$a = @(Get-NetAdapter -Physical | Where-Object { $_.Status -eq 'Up' -and $_.MediaType -eq '802.3' })
+$slow = @($a | Where-Object { $_.ReceiveLinkSpeed -lt 1000000000 })
+if ($a.Count -eq 0) { '1' } elseif ($slow.Count -eq 0) { '1' } else { ($slow | ForEach-Object { "$($_.Name) nur mit $($_.LinkSpeed)" }) -join ', ' }
+'''
+expect = "1"

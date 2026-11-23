@@ -210,3 +210,22 @@ file = '%LOCALAPPDATA%\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.
 section = "ScalabilityGroups"
 key = "sg.ReflectionQuality"
 apply = "0"
+
+[[tweak]]
+id = "fn.reflex_check"
+name = "NVIDIA Reflex an"
+category = "fortnite"
+kind = "check"
+description = "NVIDIA Reflex ist in Fortnite eingeschaltet. Reflex hält die Warteschlange zwischen CPU und GPU leer und senkt die Eingabelatenz, vor allem wenn die Grafikkarte limitiert."
+note = "Einschalten im Spiel unter Grafik → NVIDIA Reflex Low Latency, „Ein + Boost“ hilft zusätzlich, wenn die CPU limitiert."
+evidence = "B"
+risk = "low"
+requires = ["fortnite", "gpu.nvidia"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$f = "$env:LOCALAPPDATA\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
+$m = Select-String -LiteralPath $f -Pattern '^LatencyTweak2=(\d+)' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $m) { 'nicht gesetzt' } elseif ([int]$m.Matches[0].Groups[1].Value -ge 1) { '1' } else { '0' }
+'''
+expect = "1"

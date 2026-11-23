@@ -48,8 +48,8 @@ apply = "yes"
 id = "prio.win32_2a"
 name = "Win32PrioritySeparation 0x2A"
 category = "windows"
-description = "Kurze, feste Zeitscheiben mit 3:1-Vorteil für das Vordergrundfenster. Der unter Competitive-Spielern verbreitetste Wert."
-note = "Hex 0x2A = dezimal 42. Die Quantum-Tabelle hat sich mit Windows 11 24H2 geändert, alte Messwerte sind nicht übertragbar."
+description = "Kurze, feste Zeitscheiben für alle Prozesse. Bei festen Zeitscheiben greift der Vordergrund-Bonus nicht, Vorder- und Hintergrund bekommen gleich lange Scheiben. Unter Competitive-Spielern trotzdem der verbreitetste Wert."
+note = "Hex 0x2A = dezimal 42. Messungen zum Nutzen gibt es kaum, am besten mit dem Benchmark gegen den Standard vergleichen."
 evidence = "C"
 risk = "low"
 [[tweak.actions]]
@@ -232,7 +232,7 @@ id = "sec.hvci_off"
 name = "Speicherintegrität (HVCI) aus"
 category = "windows"
 description = "Schaltet die Kernisolierung ab. In CPU-limitierten Spielen der größte reine Windows-Hebel, Tests messen je nach System 3 bis 10 % mehr Leistung."
-note = "Senkt den Kernel-Schutz. Valorant (Vanguard) und FACEIT können HVCI verlangen."
+note = "Senkt den Kernel-Schutz. Typisch sind etwa 5 % in CPU-limitierten Szenen, die 10 % sind der Ausreißer nach oben. Valorant (Vanguard) und FACEIT können HVCI verlangen. Seit Oktober 2026 schalten Windows-Updates HVCI auf geeigneten PCs ein, ausdrücklich abgeschaltete Werte bleiben laut Microsoft erhalten."
 evidence = "A"
 risk = "high"
 reboot = true
@@ -440,7 +440,7 @@ id = "win.game_mode_check"
 name = "Spielmodus an"
 category = "windows"
 kind = "check"
-description = "Solange ein Spiel läuft, installiert Windows Update keine Treiber und fragt nicht nach Neustarts. Das ist der eigentliche Nutzen, mehr FPS bringt der Spielmodus kaum."
+description = "Solange ein Spiel läuft, installiert Windows Update keine Treiber und fragt nicht nach Neustarts. Außerdem pausiert der Suchindex. Das ist der eigentliche Nutzen, mehr FPS bringt der Spielmodus kaum."
 note = "Einschalten unter Einstellungen → Spielen → Spielmodus."
 evidence = "B"
 risk = "low"
@@ -468,5 +468,104 @@ $games = 'FortniteClient-Win64-Shipping.exe', 'GTA5.exe', 'GTA5_Enhanced.exe', '
 $names = @((Get-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\FTH\State' -ErrorAction SilentlyContinue).Property)
 $hit = @($names | ForEach-Object { Split-Path $_ -Leaf } | Where-Object { $games -contains $_ } | Select-Object -Unique)
 if ($hit.Count -eq 0) { '1' } else { 'betroffen: ' + ($hit -join ', ') }
+'''
+expect = "1"
+
+[[tweak]]
+id = "dotnet.ngen_flush"
+name = ".NET-Optimierung nach Updates abschließen"
+category = "windows"
+kind = "oneshot"
+description = "Nach .NET- und Windows-Updates übersetzt Windows im Hintergrund .NET-Bibliotheken neu (mscorsvw.exe). Das kann mitten im Spiel CPU-Last erzeugen. Diese Aktion erledigt die Warteschlange sofort."
+note = "Dauert einige Minuten. Am besten direkt nach einem Patchday ausführen."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+apply = '''
+$n = 0
+foreach ($f in "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\ngen.exe", "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\ngen.exe") {
+  if (Test-Path $f) { & $f executeQueuedItems | Out-Null; $n++ }
+}
+if ($n -eq 0) { throw '.NET Framework 4 nicht gefunden' }
+'Ausstehende .NET-Optimierungen sind abgeschlossen.'
+'''
+
+[[tweak]]
+id = "sec.exploit_protection_check"
+name = "Exploit-Schutz (CFG und DEP) an"
+category = "windows"
+kind = "check"
+description = "Kontrollflussschutz (CFG) und Datenausführungsverhinderung (DEP) sind systemweit nicht abgeschaltet. Manche Tweak-Pakete schalten sie ab, ohne gemessenen Gewinn. Valorant startet dann mit Fehler VAN 9002 nicht."
+note = "Zurücksetzen unter Windows-Sicherheit → App- und Browsersteuerung → Exploit-Schutz → Systemeinstellungen auf „Standard verwenden“."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$m = Get-ProcessMitigation -System
+$off = @()
+if ("$($m.CFG.Enable)" -eq 'OFF') { $off += 'CFG' }
+if ("$($m.DEP.Enable)" -eq 'OFF') { $off += 'DEP' }
+if ($off.Count -eq 0) { '1' } else { 'systemweit aus: ' + ($off -join ', ') }
+'''
+expect = "1"
+
+[[tweak]]
+id = "sec.mitigations_check"
+name = "Spectre- und Meltdown-Schutz nicht abgeschaltet"
+category = "windows"
+kind = "check"
+description = "Die CPU-Schutzmaßnahmen gegen Spectre und Meltdown sind nicht per Registry abgeschaltet. Auf aktuellen CPUs sind die Windows-Standards bereits schlank, ein Spielgewinn durch Abschalten ist nicht belegt. FACEIT verlangt den Schutz."
+note = "Zurücksetzen: die Werte FeatureSettingsOverride und FeatureSettingsOverrideMask unter HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management löschen und neu starten."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$k = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -ErrorAction SilentlyContinue
+if ($k.FeatureSettingsOverride -eq 3 -and $k.FeatureSettingsOverrideMask -eq 3) { '0' } else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "sec.kernel_stack_eac_check"
+name = "Kernel-Stapelschutz und Easy Anti-Cheat"
+category = "windows"
+kind = "check"
+description = "Der hardwaregestützte Kernel-Stapelschutz ist aus. Ist er an, kann Easy Anti-Cheat laut Epic den Start von Fortnite verhindern (Fehler 1275)."
+note = "Nur abschalten, wenn Fortnite tatsächlich nicht startet: Windows-Sicherheit → Gerätesicherheit → Kernisolierung."
+evidence = "A"
+risk = "low"
+requires = ["fortnite"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$r = @((Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue).SecurityServicesRunning)
+if ($r -contains 5 -or $r -contains 6) { 'Kernel-Stapelschutz ist aktiv' } else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "cpu.boost_policy"
+name = "CPU-Boost im Energieplan erlaubt"
+category = "power"
+kind = "check"
+description = "Der aktive Energieplan erlaubt den Turbo-Takt und lässt die CPU bis 100 % laufen. Manche Pläne oder Tools schalten den Boost ab, dann fehlen schnell 20 % Takt."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+function AcIndex($sub, $set) {
+  $h = @(powercfg /qh SCHEME_CURRENT $sub $set | Select-String '0x[0-9a-fA-F]{8}\s*$' | ForEach-Object { [Convert]::ToInt32(($_.Line -split '0x')[-1].Trim(), 16) })
+  if ($h.Count -ge 2) { $h[$h.Count - 2] }
+}
+$boost = AcIndex 'SUB_PROCESSOR' 'PERFBOOSTMODE'
+$max = AcIndex 'SUB_PROCESSOR' 'PROCTHROTTLEMAX'
+$p = @()
+if ($boost -eq 0) { $p += 'Boost abgeschaltet' }
+if ($null -ne $max -and $max -lt 100) { $p += "maximaler Takt $max %" }
+if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
 '''
 expect = "1"

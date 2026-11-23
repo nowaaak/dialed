@@ -91,7 +91,7 @@ evidence = "B"
 risk = "medium"
 [[tweak.actions]]
 type = "ps"
-detect = "$v = Get-BitLockerVolume -MountPoint $env:SystemDrive; if ($v -and \"$($v.ProtectionStatus)\" -eq 'On') { '0' } else { '1' }"
+detect = "$v = (New-Object -ComObject Shell.Application).NameSpace(17).ParseName($env:SystemDrive).ExtendedProperty('System.Volume.BitLockerProtection'); if ($v -in 1, 3, 5, 6) { '0' } else { '1' }"
 expect = "1"
 
 [[tweak]]
@@ -156,5 +156,50 @@ type = "ps"
 detect = '''
 $low = @(Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter -and $_.Size -gt 20GB -and ($_.SizeRemaining / $_.Size) -lt 0.15 })
 if ($low.Count -eq 0) { '1' } else { ($low | ForEach-Object { '{0}: nur {1:N0} % frei' -f $_.DriveLetter, (100 * $_.SizeRemaining / $_.Size) }) -join ', ' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "storage.games_on_ssd_check"
+name = "Spiele auf SSD"
+category = "storage"
+kind = "check"
+description = "Die Spielebibliotheken von Steam und Epic liegen auf SSDs. Viele aktuelle Spiele setzen eine SSD voraus, auf Festplatten ruckeln sie beim Nachladen."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$paths = @()
+$paths += Get-ChildItem "$env:ProgramData\Epic\EpicGamesLauncher\Data\Manifests\*.item" -ErrorAction SilentlyContinue | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).InstallLocation }
+$steam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+if ($steam) {
+  $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
+  if (Test-Path -LiteralPath $vdf) { $paths += [regex]::Matches((Get-Content -LiteralPath $vdf -Raw), '"path"\s+"([^"]+)"') | ForEach-Object { $_.Groups[1].Value } }
+}
+$letters = @($paths | Where-Object { $_ -match '^[A-Za-z]:' } | ForEach-Object { $_.Substring(0, 1).ToUpper() } | Select-Object -Unique)
+$hdd = @(foreach ($l in $letters) {
+  $d = Get-Partition -DriveLetter $l -ErrorAction SilentlyContinue | Get-Disk -ErrorAction SilentlyContinue
+  if ($d -and "$((Get-PhysicalDisk | Where-Object { $_.DeviceId -eq "$($d.Number)" }).MediaType)" -eq 'HDD') { "${l}:" }
+})
+if ($letters.Count -eq 0) { 'keine Spielebibliothek gefunden' } elseif ($hdd.Count -eq 0) { '1' } else { 'Spiele auf Festplatte: ' + ($hdd -join ', ') }
+'''
+expect = "1"
+
+[[tweak]]
+id = "storage.system_drive_check"
+name = "Windows auf der schnellsten SSD"
+category = "storage"
+kind = "check"
+description = "Windows liegt auf einer NVMe-SSD, wenn eine vorhanden ist. Auf einer SATA-SSD starten Windows, Updates und Programme langsamer. Auf die FPS in Spielen hat das keinen Einfluss."
+note = "Umziehen geht nur per Neuinstallation oder Klonen des Systemlaufwerks."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$sys = Get-Partition -DriveLetter $env:SystemDrive.Substring(0, 1) | Get-Disk
+$nvme = @(Get-PhysicalDisk | Where-Object { "$($_.BusType)" -eq 'NVMe' })
+if ("$($sys.BusType)" -ne 'NVMe' -and $nvme.Count -gt 0) { "Windows liegt auf $($sys.FriendlyName) ($($sys.BusType))" } else { '1' }
 '''
 expect = "1"

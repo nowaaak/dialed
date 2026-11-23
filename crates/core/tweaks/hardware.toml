@@ -13,24 +13,31 @@ requires = ["!laptop"]
 [[tweak.actions]]
 type = "ps"
 detect = '''
-$m = Get-CimInstance Win32_PhysicalMemory | Select-Object -First 1
-$t = [int]$m.SMBIOSMemoryType; $s = [int]$m.ConfiguredClockSpeed
-if (($t -eq 34 -and $s -gt 5600) -or ($t -eq 26 -and $s -gt 2933)) { '1' } else { '0' }
+$m = @(Get-CimInstance Win32_PhysicalMemory)
+$t = [int]$m[0].SMBIOSMemoryType
+$s = [int]($m | Measure-Object ConfiguredClockSpeed -Minimum).Minimum
+if (($t -eq 34 -and $s -gt 5600) -or ($t -eq 26 -and $s -gt 2933)) { '1' } else { "läuft mit $s MT/s, falls dein Kit XMP oder EXPO kann" }
 '''
 expect = "1"
 
 [[tweak]]
 id = "hw.dual_channel"
-name = "Mindestens zwei RAM-Riegel"
+name = "RAM im Dual-Channel"
 category = "hardware"
 kind = "check"
-description = "Mit nur einem Riegel läuft der Speicher im Single-Channel-Betrieb, das kostet in Spielen deutlich Leistung."
+description = "Mindestens zwei Riegel stecken in unterschiedlichen Speicherkanälen. Mit nur einem Riegel oder zwei Riegeln im selben Kanal läuft der Speicher im Single-Channel-Betrieb, das kostet in Spielen deutlich Leistung."
 note = "Zwei Riegel gehören in die im Mainboard-Handbuch genannten Slots, meist A2 und B2."
 evidence = "A"
 risk = "low"
 [[tweak.actions]]
 type = "ps"
-detect = "if (@(Get-CimInstance Win32_PhysicalMemory).Count -ge 2) { '1' } else { '0' }"
+detect = '''
+$m = @(Get-CimInstance Win32_PhysicalMemory)
+if ($m.Count -lt 2) { 'nur ein Riegel' } else {
+  $ch = @($m | ForEach-Object { if ("$($_.BankLabel) $($_.DeviceLocator)" -match '(?i)channel\s*([A-H])') { $Matches[1].ToUpper() } } | Select-Object -Unique)
+  if ($ch.Count -eq 1) { 'alle Riegel in Kanal ' + $ch[0] } else { '1' }
+}
+'''
 expect = "1"
 
 [[tweak]]
@@ -88,5 +95,162 @@ type = "ps"
 detect = '''
 $n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WHEA-Logger'; StartTime = (Get-Date).AddDays(-14) } -ErrorAction SilentlyContinue).Count
 if ($n -eq 0) { '1' } else { "$n Meldungen in 14 Tagen" }
+'''
+expect = "1"
+
+[[tweak]]
+id = "cpu.cppc_check"
+name = "Bevorzugte Kerne (CPPC) aktiv"
+category = "hardware"
+kind = "check"
+description = "Windows kennt die schnellsten Kerne der CPU und legt kurze Last zuerst dorthin. Dafür muss CPPC im BIOS aktiv sein und die Firmware unterschiedliche Kernwerte melden."
+note = "Im BIOS „CPPC“ und „CPPC Preferred Cores“ auf Auto oder Enabled stellen. Melden alle Kerne denselben Wert, hilft oft ein BIOS-Update."
+evidence = "B"
+risk = "low"
+requires = ["cpu.amd"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$ev = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'; Id = 55 } -MaxEvents ([Environment]::ProcessorCount) -ErrorAction SilentlyContinue)
+if ($ev.Count -eq 0) { 'keine Daten seit dem letzten Start' } else {
+  $vals = @($ev | ForEach-Object { (([xml]$_.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'MaximumPerformancePercent' }).'#text' } | Select-Object -Unique)
+  if ($vals.Count -gt 1) { '1' } else { 'alle Kerne gleich eingestuft' }
+}
+'''
+expect = "1"
+
+[[tweak]]
+id = "cpu.firmware_limit_check"
+name = "CPU nicht von der Firmware gedrosselt"
+category = "hardware"
+kind = "check"
+description = "Windows hat in den letzten 14 Tagen keine Drosselung der CPU durch die Firmware protokolliert. Das passiert bei Stromsparvorgaben des BIOS, zu schwachen Netzteilen bei Notebooks oder defekten Sensoren."
+note = "Thermische Drosselung bei Desktop-Ryzen taucht hier meist nicht auf. Ein sauberes Ergebnis heißt also nicht, dass die CPU nie zu heiß wird."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$n = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Processor-Power'; Id = 35, 37; StartTime = (Get-Date).AddDays(-14) } -ErrorAction SilentlyContinue).Count
+if ($n -eq 0) { '1' } else { "$n Drosselungsmeldungen in 14 Tagen" }
+'''
+expect = "1"
+
+[[tweak]]
+id = "cpu.amd_chipset_check"
+name = "AMD-Chipsatztreiber installiert"
+category = "hardware"
+kind = "check"
+description = "Die AMD Chipset Software ist installiert. Sie bringt Energieprofile und bei Ryzen mit zwei CCDs und 3D V-Cache die Treiber, die Spiele auf die richtigen Kerne legen."
+note = "Download bei AMD unter Treiber & Support, passend zum Mainboard-Chipsatz."
+evidence = "B"
+risk = "low"
+requires = ["cpu.amd"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$p = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'AMD Chipset Software' } | Select-Object -First 1
+if ($p) { '1' } else { 'nicht installiert' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "mem.same_modules_check"
+name = "Gleiche RAM-Riegel"
+category = "hardware"
+kind = "check"
+description = "Alle RAM-Riegel haben dieselbe Teilenummer und Größe. Gemischte Riegel laufen oft nur mit dem langsamsten gemeinsamen Takt oder instabil mit XMP."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$m = @(Get-CimInstance Win32_PhysicalMemory)
+if (@($m | ForEach-Object { "$("$($_.PartNumber)".Trim())|$($_.Capacity)" } | Select-Object -Unique).Count -le 1) { '1' } else { 'unterschiedliche Riegel verbaut' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "mem.diagnostics_check"
+name = "Speicherdiagnose ohne Fehler"
+category = "hardware"
+kind = "check"
+description = "Die Windows-Speicherdiagnose hat beim letzten Lauf keine Fehler gefunden. Ist sie nie gelaufen, gilt das als bestanden."
+note = "Starten mit Windows-Taste → „Windows-Speicherdiagnose“. Gründlicher sind Tests wie MemTest86 oder TestMem5."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$e = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-MemoryDiagnostics-Results'; Id = 1102, 1202 } -MaxEvents 1 -ErrorAction SilentlyContinue)
+if ($e.Count -eq 0) { '1' } else { 'Fehler gefunden am ' + $e[0].TimeCreated.ToString('dd.MM.yyyy') }
+'''
+expect = "1"
+
+[[tweak]]
+id = "sys.error_events_check"
+name = "Keine Grafik- und Laufwerksfehler"
+category = "hardware"
+kind = "check"
+description = "Windows hat in den letzten 14 Tagen keine Grafiktreiber-Abstürze (TDR) und keine Laufwerksfehler protokolliert. Häufen sich solche Einträge, sind Treiber, Übertaktung oder Hardware die Ursache, nicht fehlende Tweaks."
+note = "Details in der Ereignisanzeige unter Windows-Protokolle → System."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$since = (Get-Date).AddDays(-14)
+$tdr = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Display'; Id = 4101; StartTime = $since } -ErrorAction SilentlyContinue).Count
+$disk = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'disk', 'stornvme', 'storahci'; Id = 7, 51, 129, 153; StartTime = $since } -ErrorAction SilentlyContinue).Count
+$ntfs = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Ntfs'; Id = 55; StartTime = $since } -ErrorAction SilentlyContinue).Count
+$p = @()
+if ($tdr) { $p += "$tdr Grafiktreiber-Abstürze" }
+if ($disk + $ntfs) { $p += "$($disk + $ntfs) Laufwerksfehler" }
+if ($p.Count -eq 0) { '1' } else { ($p -join ', ') + ' in 14 Tagen' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "fw.am4_agesa_check"
+name = "AM4-BIOS mit fTPM- und USB-Fix"
+category = "hardware"
+kind = "check"
+description = "Ältere BIOS-Versionen für Ryzen auf AM4 haben zwei bekannte Fehler: kurze Ruckler durch das Firmware-TPM (behoben mit AGESA 1.2.0.7, ab etwa Mitte 2022) und USB-Aussetzer (behoben mit AGESA 1.2.0.2, ab etwa Mai 2021). Dialed prüft das über das BIOS-Datum."
+note = "BIOS-Update beim Mainboard-Hersteller. Die genaue AGESA-Version kann Windows nicht auslesen, das Datum ist eine Näherung."
+evidence = "B"
+risk = "low"
+requires = ["cpu.amd", "desktop"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$cpu = "$((Get-ItemProperty -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' -ErrorAction SilentlyContinue).ProcessorNameString)"
+$raw = (Get-ItemProperty -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -ErrorAction SilentlyContinue).BIOSReleaseDate
+$bios = if ($raw) { [datetime]::ParseExact($raw, 'MM/dd/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
+if ($cpu -notmatch 'Ryzen [3579] [1-5]\d{3}' -or -not $bios) { '1' }
+elseif ($bios -lt [datetime]'2021-05-01') { 'BIOS vom ' + $bios.ToString('dd.MM.yyyy') + ', fTPM-Ruckler und USB-Aussetzer möglich' }
+elseif ($bios -lt [datetime]'2022-06-01') {
+  $t = Get-Tpm -ErrorAction SilentlyContinue
+  if ($t -and "$($t.ManufacturerIdTxt)" -notmatch 'AMD') { '1' } else { 'BIOS vom ' + $bios.ToString('dd.MM.yyyy') + ', fTPM-Ruckler möglich' }
+}
+else { '1' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "fw.secureboot_ca2023_check"
+name = "Secure-Boot-Zertifikate aktuell"
+category = "hardware"
+kind = "check"
+description = "Die Secure-Boot-Zertifikate von 2011 laufen 2026 aus. Windows tauscht sie über Updates gegen die Zertifikate von 2023. Sind sie noch nicht getauscht, drohen nach dem Ablauf Probleme mit Secure Boot, das Valorant und andere Anti-Cheats verlangen."
+note = "Windows Update ausführen. Bleibt der Status hängen, hilft oft ein BIOS-Update."
+evidence = "A"
+risk = "low"
+requires = ["win11"]
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$s = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\Servicing' -ErrorAction SilentlyContinue
+$on = try { Confirm-SecureBootUEFI } catch { $false }
+if (-not $on) { '1' } elseif ("$($s.UEFICA2023Status)" -eq 'Updated' -and -not $s.UEFICA2023Error) { '1' } elseif ($s.UEFICA2023Error) { "Fehler beim Tausch: $($s.UEFICA2023Error)" } else { 'noch nicht getauscht' }
 '''
 expect = "1"

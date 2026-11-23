@@ -149,9 +149,9 @@ id = "gfx.mpo_check"
 name = "Multiplane Overlay nicht abgeschaltet"
 category = "gpu"
 kind = "check"
-description = "Viele Guides schalten Multiplane Overlay (MPO) ab. Das hilft nur gegen Flackern auf bestimmten Systemen und kostet randlosen Spielen den schnellsten Ausgabeweg (Independent Flip), also Latenz."
+description = "Viele Guides schalten Multiplane Overlay (MPO) ab. Das hilft nur gegen Flackern auf bestimmten Systemen. Ohne MPO verlieren randlose Spiele den Ausgabeweg „Hardware Composed: Independent Flip“, der greift, wenn Overlays wie Discord oder die Lautstärkeanzeige über dem Spiel liegen."
 note = "Ist MPO absichtlich wegen Flackern aus, kannst du diese Prüfung ignorieren. Sonst den Wert OverlayTestMode unter HKLM\\SOFTWARE\\Microsoft\\Windows\\Dwm löschen und neu starten."
-evidence = "A"
+evidence = "B"
 risk = "low"
 [[tweak.actions]]
 type = "ps"
@@ -258,3 +258,55 @@ requires = ["gpu.nvidia", "vrr"]
 type = "nvidia_drs"
 setting = "0x1095F16F"
 apply = 1
+
+[[tweak]]
+id = "gpu.driver_check"
+name = "Grafiktreiber installiert und aktuell"
+category = "gpu"
+kind = "check"
+description = "Ein richtiger Grafiktreiber ist installiert und höchstens ein Jahr alt. Bei NVIDIA mindestens Version 581.94: Ältere Treiber verloren nach dem Windows-Update KB5066835 teils massiv Leistung."
+note = "Neue Treiber über die NVIDIA App, AMD Adrenalin oder Intel holen. Der neueste Treiber bringt nicht automatisch mehr FPS, behebt aber Fehler mit neuen Spielen und Windows-Updates."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$g = @(Get-CimInstance Win32_VideoController)
+$p = @()
+if ($g | Where-Object { $_.Name -match 'Basic Display|Standard-VGA|Microsoft Basic' }) { $p += 'kein richtiger Grafiktreiber' }
+foreach ($x in $g | Where-Object { $_.Name -match 'NVIDIA' }) {
+  $d = "$($x.DriverVersion)".Replace('.', '')
+  if ($d.Length -ge 5) {
+    $v = [int]$d.Substring($d.Length - 5)
+    if ($v -lt 58194) { $p += 'NVIDIA-Treiber {0}.{1:00} ist älter als 581.94' -f [math]::Floor($v / 100), ($v % 100) }
+  }
+}
+$old = @($g | Where-Object { $_.DriverDate -and $_.DriverDate -lt (Get-Date).AddDays(-365) })
+if ($old.Count) { $p += 'Treiber älter als ein Jahr: ' + (($old | ForEach-Object Name) -join ', ') }
+if ($p.Count -eq 0) { '1' } else { $p -join ', ' }
+'''
+expect = "1"
+
+[[tweak]]
+id = "gpu.shader_cache_clear"
+name = "Shader-Cache leeren"
+category = "gpu"
+kind = "oneshot"
+description = "Löscht die Shader-Caches von NVIDIA, AMD und DirectX. Hilft nur bei beschädigten Caches oder Rucklern, die nach einem Treiber- oder Spiel-Update bleiben."
+note = "Nur bei Problemen nutzen. Danach ruckeln die ersten Spielstarts, bis die Shader neu erstellt sind. Regelmäßiges Leeren bringt keine FPS."
+evidence = "B"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+apply = '''
+$dirs = "$env:LOCALAPPDATA\NVIDIA\DXCache", "$env:LOCALAPPDATA\NVIDIA\GLCache", "$env:LOCALAPPDATA\D3DSCache", "$env:LOCALAPPDATA\AMD\DxCache", "$env:LOCALAPPDATA\AMD\DxcCache", "$env:LOCALAPPDATA\AMD\VkCache"
+$freed = 0
+foreach ($d in $dirs | Where-Object { Test-Path -LiteralPath $_ }) {
+  foreach ($f in Get-ChildItem -LiteralPath $d -Recurse -File -Force -ErrorAction SilentlyContinue) {
+    $size = $f.Length
+    Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $f.FullName)) { $freed += $size }
+  }
+}
+'{0:N0} MB Shader-Cache gelöscht. Die ersten Spielstarts ruckeln, bis die Shader neu erstellt sind.' -f ($freed / 1MB)
+'''

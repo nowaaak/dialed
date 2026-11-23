@@ -1,5 +1,5 @@
 //! Dünne Schicht zum Betriebssystem. Alles Windows-spezifische liegt hier.
-use crate::hardware::Display;
+use crate::hardware::{AudioOut, Display};
 use crate::model::RegKind;
 use std::path::PathBuf;
 
@@ -33,6 +33,7 @@ pub trait Sys: Send + Sync {
     fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String>;
     fn displays(&self) -> Vec<Display>;
     fn nv_vrr(&self, displays: &[String]) -> Result<bool, String>;
+    fn audio(&self) -> Option<AudioOut>;
 }
 
 pub struct WinSys;
@@ -260,6 +261,103 @@ mod win {
         fn nv_vrr(&self, displays: &[String]) -> Result<bool, String> {
             crate::nv::vrr(displays)
         }
+
+        fn audio(&self) -> Option<AudioOut> {
+            use windows::core::GUID;
+            use windows::Win32::Foundation::PROPERTYKEY;
+            use windows::Win32::Media::Audio::{
+                eCommunications, eConsole, eRender, IAudioClient3, IMMDevice, IMMDeviceEnumerator,
+                MMDeviceEnumerator,
+            };
+            use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
+            use windows::Win32::System::Com::{
+                CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED,
+                STGM_READ,
+            };
+            const DEVICE: GUID = GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0);
+            const FRIENDLY: PROPERTYKEY = PROPERTYKEY {
+                fmtid: DEVICE,
+                pid: 14,
+            };
+            const ENUMERATOR: PROPERTYKEY = PROPERTYKEY {
+                fmtid: DEVICE,
+                pid: 24,
+            };
+            let ms = |frames: u32, rate: u32| {
+                if rate == 0 {
+                    0.0
+                } else {
+                    (frames as f64 * 100_000.0 / rate as f64).round() / 100.0
+                }
+            };
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let enumerator: IMMDeviceEnumerator =
+                    CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+                let prop = |d: &IMMDevice, key: &PROPERTYKEY| {
+                    d.OpenPropertyStore(STGM_READ)
+                        .and_then(|s| s.GetValue(key))
+                        .and_then(|v| PropVariantToStringAlloc(&v))
+                        .map(|p| {
+                            let s = p.to_string().unwrap_or_default();
+                            CoTaskMemFree(Some(p.0 as _));
+                            s
+                        })
+                        .unwrap_or_default()
+                };
+                let id = |d: &IMMDevice| {
+                    d.GetId()
+                        .map(|p| {
+                            let s = p.to_string().unwrap_or_default();
+                            CoTaskMemFree(Some(p.0 as _));
+                            s
+                        })
+                        .unwrap_or_default()
+                };
+                let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+                let comm_name = match enumerator.GetDefaultAudioEndpoint(eRender, eCommunications) {
+                    Ok(c) if id(&c) != id(&device) => prop(&c, &FRIENDLY),
+                    _ => String::new(),
+                };
+                let mut out = AudioOut {
+                    name: prop(&device, &FRIENDLY),
+                    bus: prop(&device, &ENUMERATOR),
+                    comm_name,
+                    ..Default::default()
+                };
+                if let Ok(client) = device.Activate::<IAudioClient3>(CLSCTX_ALL, None) {
+                    if let Ok(format) = client.GetMixFormat() {
+                        let rate = (*format).nSamplesPerSec;
+                        let (mut default, mut step, mut min, mut max) = (0, 0, 0, 0);
+                        if client
+                            .GetSharedModeEnginePeriod(
+                                format,
+                                &mut default,
+                                &mut step,
+                                &mut min,
+                                &mut max,
+                            )
+                            .is_ok()
+                        {
+                            out.default_ms = ms(default, rate);
+                            out.min_ms = ms(min, rate);
+                        }
+                        let mut current_format = std::ptr::null_mut();
+                        let mut current = 0;
+                        if client
+                            .GetCurrentSharedModeEnginePeriod(&mut current_format, &mut current)
+                            .is_ok()
+                            && !current_format.is_null()
+                        {
+                            out.current_ms = ms(current, (*current_format).nSamplesPerSec);
+                            CoTaskMemFree(Some(current_format as _));
+                        }
+                        CoTaskMemFree(Some(format as _));
+                    }
+                }
+                Some(out)
+            }
+        }
     }
 }
 
@@ -301,5 +399,8 @@ impl Sys for WinSys {
     }
     fn nv_vrr(&self, _: &[String]) -> Result<bool, String> {
         Err("nur unter Windows".into())
+    }
+    fn audio(&self) -> Option<AudioOut> {
+        None
     }
 }

@@ -208,7 +208,7 @@ async function runBench() {
   try {
     const run = await invoke("benchmark", { process, seconds });
     state.bench.push(run);
-    toast(`Messung fertig: ${run.avg_fps} FPS im Schnitt, ${run.low1_fps} FPS 1%-Low`);
+    toast(`Messung fertig: ${run.avg_fps} FPS im Schnitt, ${run.low1_avg_fps ?? run.low1_fps} FPS 1%-Low`);
   } catch (e) {
     toast("Benchmark: " + e, true);
   }
@@ -219,29 +219,38 @@ async function runBench() {
 function renderBench() {
   const runs = [...state.bench].reverse();
   const diff = (a, b) => {
-    if (b == null) return "";
+    if (a == null || b == null) return "";
     const d = Math.round((a - b) * 10) / 10;
-    return d === 0 ? "" : ` <span class="${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d}</span>`;
+    return d === 0 ? "" : ` <span class="muted" title="Einzelne Läufe schwanken. Erst mehrere Läufe je Variante sind aussagekräftig.">${d > 0 ? "+" : ""}${d}</span>`;
+  };
+  const shortMode = (m) => (m ? m.replace("Hardware Composed: ", "HW-Composed ").replace("Hardware: ", "HW ").replace("Composed: ", "Composed ") : "–");
+  const limit = (r) => {
+    if (r.capped) return "FPS-Limit";
+    if (r.gpu_busy == null) return "–";
+    return r.gpu_busy >= 0.95 ? "GPU" : r.gpu_busy <= 0.8 ? "CPU" : "gemischt";
   };
   const rows = runs.map((r, i) => {
     const prev = runs[i + 1] && runs[i + 1].process === r.process ? runs[i + 1] : null;
     const names = r.active.map((id) => (state.tweaks.find((t) => t.id === id) || { name: id }).name).join(", ");
-    return `<tr><td>${new Date(r.at * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}</td><td>${esc(r.process)}</td><td class="num">${r.avg_fps}${diff(r.avg_fps, prev && prev.avg_fps)}</td><td class="num">${r.low1_fps}${diff(r.low1_fps, prev && prev.low1_fps)}</td><td class="num">${r.low01_fps}${diff(r.low01_fps, prev && prev.low01_fps)}</td><td title="${esc(names)}">${r.active.length} aktiv</td></tr>`;
+    const low1 = r.low1_avg_fps ?? r.low1_fps;
+    const low01 = r.low01_avg_fps ?? (r.low1_avg_fps == null ? r.low01_fps : null);
+    const warn = r.swapchains > 1 ? ` title="${r.swapchains} Swapchains erkannt, ausgewertet wurde die mit der meisten Laufzeit"` : "";
+    return `<tr><td>${new Date(r.at * 1000).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}</td><td${warn}>${esc(r.process)}</td><td class="num">${r.avg_fps}${diff(r.avg_fps, prev && prev.avg_fps)}</td><td class="num">${low1}${diff(low1, prev && (prev.low1_avg_fps ?? prev.low1_fps))}</td><td class="num">${low01 ?? '<span class="muted" title="Zu wenige Frames für einen belastbaren Wert">–</span>'}</td><td class="num">${r.stutters ?? "–"}</td><td title="${esc(r.present_mode || "")}${r.present_share != null ? ` (${Math.round(r.present_share * 100)} %)` : ""}">${esc(shortMode(r.present_mode))}</td><td>${limit(r)}</td><td title="${esc(names)}">${r.active.length} aktiv</td></tr>`;
   }).join("");
   $("list").innerHTML = `
     <article class="card benchform">
       <div class="row"><div>
         <div class="head"><h3>Spiel messen</h3></div>
-        <p>Misst Frametimes des laufenden Spiels mit Intel PresentMon. Spiel starten, immer dieselbe Szene spielen und die Messung vor und nach einem Tweak vergleichen. Zu jeder Messung merkt sich Dialed, welche Tweaks aktiv waren.</p>
+        <p>Misst Frametimes des laufenden Spiels mit Intel PresentMon. Nach dem Klick hast du 5 Sekunden, um ins Spiel zu wechseln. Immer dieselbe Szene spielen und je Variante mehrere Läufe machen, ein einzelner Lauf schwankt um einige Prozent. Zu jeder Messung merkt sich Dialed, welche Tweaks aktiv waren.</p>
         <div class="fields">
           <label>Prozess<input id="bench-process" value="FortniteClient-Win64-Shipping.exe" spellcheck="false"></label>
           <label>Dauer<select id="bench-seconds"><option value="30">30 s</option><option value="60" selected>60 s</option><option value="120">120 s</option></select></label>
           <button type="button" class="btn primary" id="bench-run" ${state.benchBusy ? "disabled" : ""}>${state.benchBusy ? "Messung läuft …" : "Messung starten"}</button>
         </div>
-        <p class="hint">PresentMon einmalig installieren: <code>winget install --id Intel.PresentMon.Console -e</code></p>
+        <p class="hint">PresentMon einmalig installieren: <code>winget install --id Intel.PresentMon.Console -e</code>. Dialed startet nur ein gültig von Intel signiertes PresentMon.</p>
       </div></div>
     </article>
-    ${rows ? `<article class="card"><div class="details shown"><table class="bench"><thead><tr><th>Wann</th><th>Prozess</th><th class="num">Ø FPS</th><th class="num">1%-Low</th><th class="num">0,1%-Low</th><th>Tweaks</th></tr></thead><tbody>${rows}</tbody></table></div></article>` : '<div class="empty">Noch keine Messungen.</div>'}`;
+    ${rows ? `<article class="card"><div class="details shown"><table class="bench"><thead><tr><th>Wann</th><th>Prozess</th><th class="num">Ø FPS</th><th class="num" title="Durchschnitt der langsamsten 1 % aller Frames">1%-Low</th><th class="num" title="Durchschnitt der langsamsten 0,1 %, erst ab 10 000 Frames">0,1%-Low</th><th class="num" title="Frames, die mehr als 2,5-mal so lange dauern wie der Durchschnitt">Ruckler</th><th title="Ausgabeweg laut PresentMon, Independent Flip ist der schnellste">Ausgabe</th><th title="GPU: Grafikkarte limitiert, CPU-Tweaks ändern die FPS kaum. FPS-Limit: Ø FPS ist kein Vergleichswert.">Limit</th><th>Tweaks</th></tr></thead><tbody>${rows}</tbody></table></div></article>` : '<div class="empty">Noch keine Messungen.</div>'}`;
 }
 
 // ---------- Darstellung ----------
@@ -274,6 +283,9 @@ const GAMES = [
   { flag: "gta_legacy", label: "GTA V Legacy", cat: "gta" },
   { flag: "gta_enhanced", label: "GTA V Enhanced", cat: "gta" },
   { flag: "minecraft", label: "Minecraft", cat: "games" },
+  { flag: "fivem", label: "FiveM", cat: "gta", optional: true },
+  { flag: "r6", label: "Rainbow Six Siege", cat: "games", optional: true },
+  { flag: "overwatch", label: "Overwatch 2", cat: "games", optional: true },
 ];
 
 function cpuName(hw) {
@@ -295,8 +307,9 @@ function systemInfo() {
     hw.disks.map((d) => row("Laufwerk", d)).join("") +
     (hw.displays || []).map((d) => row(d.primary ? "Hauptmonitor" : "Monitor", `${d.width}×${d.height}, ${d.current} Hz${d.current < d.max ? ` (möglich: ${d.max} Hz)` : ""}`)).join("") +
     (hw.flags.includes("gpu.nvidia") ? row("G-SYNC", hw.vrr ? "aktiv" : "nicht aktiv") : "") +
+    (hw.audio ? row("Audio", `${hw.audio.name}${(hw.audio.bus || "").startsWith("BTH") ? " (Bluetooth)" : ""}, Puffer ${hw.audio.current_ms} ms`) : "") +
     row("Windows", `${(hw.os || "Windows").replace("Microsoft ", "")}, Build ${hw.build}`);
-  const games = GAMES.map((g) =>
+  const games = GAMES.filter((g) => !g.optional || hw.flags.includes(g.flag)).map((g) =>
     hw.flags.includes(g.flag)
       ? `<li><button type="button" class="game" data-goto="${g.cat}"><span>${esc(g.label)}</span><span class="badge ok">Gefunden</span></button></li>`
       : `<li><div class="game na"><span>${esc(g.label)}</span><span class="badge out">Nicht gefunden</span></div></li>`
