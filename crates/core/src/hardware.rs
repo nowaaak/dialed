@@ -47,6 +47,10 @@ pub struct AudioOut {
     pub min_ms: f64,
     pub current_ms: f64,
     pub comm_name: String,
+    pub mic_name: String,
+    pub mic_bus: String,
+    pub comm_mic_name: String,
+    pub comm_mic_bus: String,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]

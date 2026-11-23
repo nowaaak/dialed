@@ -1108,6 +1108,7 @@ mod tests {
                 min_ms: 2.67,
                 current_ms: 10.0,
                 comm_name: String::new(),
+                ..Default::default()
             })
         }
         fn nv_write(&self, app: Option<&str>, id: u32, value: Option<u32>) -> Result<(), String> {

@@ -308,6 +308,7 @@ function systemInfo() {
     (hw.displays || []).map((d) => row(d.primary ? "Hauptmonitor" : "Monitor", `${d.width}×${d.height}, ${d.current} Hz${d.current < d.max ? ` (möglich: ${d.max} Hz)` : ""}`)).join("") +
     (hw.flags.includes("gpu.nvidia") ? row("G-SYNC", hw.vrr ? "aktiv" : "nicht aktiv") : "") +
     (hw.audio ? row("Audio", `${hw.audio.name}${(hw.audio.bus || "").startsWith("BTH") ? " (Bluetooth)" : ""}, Puffer ${hw.audio.current_ms} ms`) : "") +
+    (hw.audio && hw.audio.mic_name ? row("Mikrofon", `${hw.audio.mic_name}${(hw.audio.mic_bus || "").startsWith("BTH") ? " (Bluetooth)" : ""}`) : "") +
     row("Windows", `${(hw.os || "Windows").replace("Microsoft ", "")}, Build ${hw.build}`);
   const games = GAMES.filter((g) => !g.optional || hw.flags.includes(g.flag)).map((g) =>
     hw.flags.includes(g.flag)

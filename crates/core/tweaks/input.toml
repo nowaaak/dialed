@@ -234,6 +234,26 @@ if (-not $a) { 'kein Wiedergabegerät erkannt' } elseif ("$($a.bus)" -like 'BTH*
 expect = "1"
 
 [[tweak]]
+id = "audio.bluetooth_mic_check"
+name = "Mikrofon nicht über Bluetooth"
+category = "input"
+kind = "check"
+description = "Das Standard- und das Kommunikationsmikrofon laufen nicht über klassisches Bluetooth. Öffnet eine App ein Bluetooth-Mikrofon, schaltet Windows das Headset ins Freisprechprofil: Ton nur noch in Mono mit niedriger Abtastrate, alles klingt dumpf, auch das Spiel."
+note = "Bei Headsets mit 2,4-GHz-Dongle den Dongle für Ton und Mikrofon nutzen. Sonst ein anderes Mikrofon als Standard setzen und das Bluetooth-Mikrofon in den Sound-Einstellungen deaktivieren. Nur LE-Audio-Headsets an einem LE-Audio-fähigen PC schaffen Stereo und Mikrofon gleichzeitig."
+evidence = "A"
+risk = "low"
+[[tweak.actions]]
+type = "ps"
+detect = '''
+$a = $env:DIALED_AUDIO | ConvertFrom-Json
+$bt = @()
+if ($a -and "$($a.mic_bus)" -like 'BTH*') { $bt += $a.mic_name }
+if ($a -and "$($a.comm_mic_bus)" -like 'BTH*' -and $a.comm_mic_name -ne $a.mic_name) { $bt += $a.comm_mic_name }
+if ($bt.Count -eq 0) { '1' } else { 'Bluetooth-Mikrofon als Standard: ' + ($bt -join ', ') }
+'''
+expect = "1"
+
+[[tweak]]
 id = "audio.comm_device_check"
 name = "Sprachchat auf demselben Gerät"
 category = "input"

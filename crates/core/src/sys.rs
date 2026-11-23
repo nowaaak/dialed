@@ -266,8 +266,8 @@ mod win {
             use windows::core::GUID;
             use windows::Win32::Foundation::PROPERTYKEY;
             use windows::Win32::Media::Audio::{
-                eCommunications, eConsole, eRender, IAudioClient3, IMMDevice, IMMDeviceEnumerator,
-                MMDeviceEnumerator,
+                eCapture, eCommunications, eConsole, eRender, IAudioClient3, IMMDevice,
+                IMMDeviceEnumerator, MMDeviceEnumerator,
             };
             use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
             use windows::Win32::System::Com::{
@@ -325,6 +325,14 @@ mod win {
                     comm_name,
                     ..Default::default()
                 };
+                if let Ok(mic) = enumerator.GetDefaultAudioEndpoint(eCapture, eConsole) {
+                    out.mic_name = prop(&mic, &FRIENDLY);
+                    out.mic_bus = prop(&mic, &ENUMERATOR);
+                }
+                if let Ok(mic) = enumerator.GetDefaultAudioEndpoint(eCapture, eCommunications) {
+                    out.comm_mic_name = prop(&mic, &FRIENDLY);
+                    out.comm_mic_bus = prop(&mic, &ENUMERATOR);
+                }
                 if let Ok(client) = device.Activate::<IAudioClient3>(CLSCTX_ALL, None) {
                     if let Ok(format) = client.GetMixFormat() {
                         let rate = (*format).nSamplesPerSec;
